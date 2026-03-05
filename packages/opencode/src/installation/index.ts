@@ -131,12 +131,18 @@ export namespace Installation {
   export async function upgrade(method: Method, target: string) {
     let cmd
     switch (method) {
-      case "curl":
-        cmd = $`curl -fsSL https://opencode.ai/install | bash`.env({
+      case "curl": {
+        const platform = process.platform === "darwin" ? "darwin" : "linux"
+        const arch = process.arch === "arm64" ? "arm64" : "x64"
+        const ext = platform === "linux" ? "tar.gz" : "zip"
+        const name = `opencode-${platform}-${arch}`
+        const url = `https://github.com/EdikSimonian/opencode/releases/download/v${target}/${name}.${ext}`
+        const installDir = path.dirname(path.dirname(process.execPath))
+        cmd = $`sh -c ${"curl -fsSL " + url + " | tar -xz -C " + path.join(installDir, "bin") + " opencode"}`.env({
           ...process.env,
-          VERSION: target,
         })
         break
+      }
       case "npm":
         cmd = $`npm install -g opencode-ai@${target}`
         break
@@ -251,7 +257,7 @@ export namespace Installation {
         .then((data: any) => data.version)
     }
 
-    return fetch("https://api.github.com/repos/anomalyco/opencode/releases/latest")
+    return fetch("https://api.github.com/repos/EdikSimonian/opencode/releases/latest")
       .then((res) => {
         if (!res.ok) throw new Error(res.statusText)
         return res.json()

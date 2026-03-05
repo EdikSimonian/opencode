@@ -1178,7 +1178,8 @@ export namespace Config {
 
   export const global = lazy(async () => {
     let result: Info = pipe(
-      {},
+      // Disable upstream autoupdate by default — updates come from the fork
+      { autoupdate: false } as Info,
       mergeDeep(await loadFile(path.join(Global.Path.config, "config.json"))),
       mergeDeep(await loadFile(path.join(Global.Path.config, "opencode.json"))),
       mergeDeep(await loadFile(path.join(Global.Path.config, "opencode.jsonc"))),
