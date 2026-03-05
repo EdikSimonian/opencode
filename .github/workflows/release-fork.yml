@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -25,10 +25,14 @@ jobs:
       - name: Create release archives
         working-directory: packages/opencode/dist
         run: |
-          zip -r opencode-darwin-arm64.zip    opencode-darwin-arm64/bin/opencode
-          zip -r opencode-darwin-x64.zip      opencode-darwin-x64/bin/opencode
-          tar -czf opencode-linux-arm64.tar.gz  -C opencode-linux-arm64/bin opencode
-          tar -czf opencode-linux-x64.tar.gz    -C opencode-linux-x64/bin opencode
+          zip -r opencode-darwin-arm64.zip   opencode-darwin-arm64/bin/opencode
+          zip -r opencode-darwin-x64.zip     opencode-darwin-x64/bin/opencode
+          zip -r opencode-darwin-x64-baseline.zip opencode-darwin-x64-baseline/bin/opencode
+          tar -czf opencode-linux-arm64.tar.gz      -C opencode-linux-arm64/bin opencode
+          tar -czf opencode-linux-x64.tar.gz        -C opencode-linux-x64/bin opencode
+          tar -czf opencode-linux-x64-baseline.tar.gz -C opencode-linux-x64-baseline/bin opencode
+          tar -czf opencode-linux-arm64-musl.tar.gz   -C opencode-linux-arm64-musl/bin opencode
+          tar -czf opencode-linux-x64-musl.tar.gz     -C opencode-linux-x64-musl/bin opencode
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -36,6 +40,10 @@ jobs:
           files: |
             packages/opencode/dist/opencode-darwin-arm64.zip
             packages/opencode/dist/opencode-darwin-x64.zip
+            packages/opencode/dist/opencode-darwin-x64-baseline.zip
             packages/opencode/dist/opencode-linux-arm64.tar.gz
             packages/opencode/dist/opencode-linux-x64.tar.gz
+            packages/opencode/dist/opencode-linux-x64-baseline.tar.gz
+            packages/opencode/dist/opencode-linux-arm64-musl.tar.gz
+            packages/opencode/dist/opencode-linux-x64-musl.tar.gz
           generate_release_notes: true
