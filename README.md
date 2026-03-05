@@ -8,6 +8,35 @@
   </a>
 </p>
 <p align="center">The open source AI coding agent.</p>
+
+---
+
+## Local Fork Changes
+
+This is a modified build of OpenCode with the following customizations:
+
+### Local Provider Auto-Detection
+- **Ollama** (`localhost:11434`) and **LMStudio** (`localhost:1234`) are automatically detected at startup. If either is running, their installed models are fetched and made available — no API key or config required.
+- Ollama is preferred as the default model provider, with LMStudio as the fallback, before any cloud provider.
+- Ollama requests use `num_ctx: 32768` to give the model enough context for the system prompt and tools (Ollama's default of 2048 is far too small).
+- `stream_options: { include_usage: true }` is disabled for both local providers to prevent silent stream hangs.
+
+### Cloud Providers Hidden by Default
+The following providers are removed from both the active provider list and the "Connect a provider" dialog unless explicitly enabled in config:
+- **OpenCode Zen** (`opencode`, `opencode-go`) — removed with all its models (Big Pickle, MinMax, etc.)
+- **Groq** (`groq`)
+- **ZenMux** (`zenmux`)
+
+To re-enable any of them, add them to `enabled_providers` in your `opencode.json`.
+
+### Build
+```bash
+bun install
+bun run build --single   # builds for current platform only (macOS arm64)
+```
+Binary output: `packages/opencode/dist/opencode-darwin-arm64/bin/opencode`
+
+---
 <p align="center">
   <a href="https://opencode.ai/discord"><img alt="Discord" src="https://img.shields.io/discord/1391832426048651334?style=flat-square&label=discord" /></a>
   <a href="https://www.npmjs.com/package/opencode-ai"><img alt="npm" src="https://img.shields.io/npm/v/opencode-ai?style=flat-square" /></a>

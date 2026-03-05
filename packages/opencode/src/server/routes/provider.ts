@@ -36,7 +36,8 @@ export const ProviderRoutes = lazy(() =>
       }),
       async (c) => {
         const config = await Config.get()
-        const disabled = new Set(config.disabled_providers ?? [])
+        const DEFAULT_HIDDEN = new Set(["groq", "zenmux", "opencode", "opencode-go"])
+        const disabled = new Set([...DEFAULT_HIDDEN, ...(config.disabled_providers ?? [])])
         const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
 
         const allProviders = await ModelsDev.get()

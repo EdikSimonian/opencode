@@ -609,6 +609,122 @@ export namespace Provider {
         },
       }
     },
+    async ollama(input) {
+      try {
+        const response = await fetch("http://localhost:11434/api/tags", {
+          signal: AbortSignal.timeout(2000),
+        })
+        if (!response.ok) return { autoload: false }
+        const data = (await response.json()) as { models: Array<{ name: string }> }
+        const ollamaModels = data.models ?? []
+
+        for (const key of Object.keys(input.models)) {
+          delete input.models[key]
+        }
+
+        for (const m of ollamaModels) {
+          const modelID = m.name
+          input.models[modelID] = {
+            id: modelID,
+            providerID: "ollama",
+            name: modelID,
+            api: {
+              id: modelID,
+              url: "http://localhost:11434/v1",
+              npm: "@ai-sdk/openai-compatible",
+            },
+            status: "active",
+            headers: {},
+            // num_ctx sets Ollama's context window per-request.
+            // Default is only 2048 — far too small for the system prompt + tools.
+            options: { num_ctx: 32768 },
+            cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+            limit: { context: 32768, output: 8192 },
+            capabilities: {
+              temperature: true,
+              reasoning: false,
+              attachment: false,
+              toolcall: true,
+              input: { text: true, audio: false, image: false, video: false, pdf: false },
+              output: { text: true, audio: false, image: false, video: false, pdf: false },
+              interleaved: false,
+            },
+            release_date: "",
+            family: "",
+            variants: {},
+          }
+        }
+
+        return {
+          autoload: ollamaModels.length > 0,
+          options: {
+            baseURL: "http://localhost:11434/v1",
+            apiKey: "ollama",
+            // Disable usage streaming — Ollama doesn't reliably send the final usage
+            // chunk, causing @ai-sdk/openai-compatible to hang or produce no output.
+            includeUsage: false,
+          },
+        }
+      } catch {
+        return { autoload: false }
+      }
+    },
+    async lmstudio(input) {
+      try {
+        const response = await fetch("http://127.0.0.1:1234/v1/models", {
+          signal: AbortSignal.timeout(2000),
+        })
+        if (!response.ok) return { autoload: false }
+        const data = (await response.json()) as { data: Array<{ id: string }> }
+        const lmModels = data.data ?? []
+
+        for (const key of Object.keys(input.models)) {
+          delete input.models[key]
+        }
+
+        for (const m of lmModels) {
+          const modelID = m.id
+          input.models[modelID] = {
+            id: modelID,
+            providerID: "lmstudio",
+            name: modelID,
+            api: {
+              id: modelID,
+              url: "http://127.0.0.1:1234/v1",
+              npm: "@ai-sdk/openai-compatible",
+            },
+            status: "active",
+            headers: {},
+            options: {},
+            cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+            limit: { context: 128000, output: 8192 },
+            capabilities: {
+              temperature: true,
+              reasoning: false,
+              attachment: false,
+              toolcall: true,
+              input: { text: true, audio: false, image: false, video: false, pdf: false },
+              output: { text: true, audio: false, image: false, video: false, pdf: false },
+              interleaved: false,
+            },
+            release_date: "",
+            family: "",
+            variants: {},
+          }
+        }
+
+        return {
+          autoload: lmModels.length > 0,
+          options: {
+            baseURL: "http://127.0.0.1:1234/v1",
+            apiKey: "lmstudio",
+            includeUsage: false,
+          },
+        }
+      } catch {
+        return { autoload: false }
+      }
+    },
   }
 
   export const Model = z
@@ -781,7 +897,20 @@ export namespace Provider {
     const modelsDev = await ModelsDev.get()
     const database = mapValues(modelsDev, fromModelsDevProvider)
 
-    const disabled = new Set(config.disabled_providers ?? [])
+    // Add local Ollama provider if not present in models.dev
+    if (!database["ollama"]) {
+      database["ollama"] = {
+        id: "ollama",
+        name: "Ollama",
+        source: "custom",
+        env: [],
+        options: {},
+        models: {},
+      }
+    }
+
+    const DEFAULT_DISABLED = ["groq", "zenmux", "opencode", "opencode-go"]
+    const disabled = new Set([...DEFAULT_DISABLED, ...(config.disabled_providers ?? [])])
     const enabled = config.enabled_providers ? new Set(config.enabled_providers) : null
 
     function isProviderAllowed(providerID: string): boolean {
@@ -1321,6 +1450,15 @@ export namespace Provider {
       if (!provider) continue
       if (!provider.models[entry.modelID]) continue
       return { providerID: entry.providerID, modelID: entry.modelID }
+    }
+
+    // Prefer local providers first (ollama > lmstudio)
+    for (const localID of ["ollama", "lmstudio"]) {
+      const localProvider = providers[localID]
+      if (localProvider && Object.keys(localProvider.models).length > 0) {
+        const [model] = sort(Object.values(localProvider.models))
+        if (model) return { providerID: localID, modelID: model.id }
+      }
     }
 
     const provider = Object.values(providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
