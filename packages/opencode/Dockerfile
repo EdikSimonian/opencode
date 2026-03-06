@@ -5,10 +5,13 @@ FROM dhi.io/debian-base:bookworm AS base
 ARG BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=${BUN_RUNTIME_TRANSPILER_CACHE_PATH}
 # dhi.io/debian-base runs as 'nonroot' by default and has no named root entry
-# in /etc/passwd, so we use UID 0 directly. capsh in the entrypoint drops
-# CAP_NET_ADMIN before exec'ing opencode. bash is pre-installed in the base image.
+# in /etc/passwd, so we use UID 0 directly. setpriv in the entrypoint drops
+# CAP_NET_ADMIN before exec'ing opencode.
 USER 0
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# The DHI image has no root user in /etc/passwd, so HOME defaults to '/'.
+# opencode needs a proper home directory for XDG config/data paths.
+ENV HOME=/root
+RUN mkdir -p /root && apt-get update && apt-get install -y --no-install-recommends \
       ripgrep \
       iptables \
     && rm -rf /var/lib/apt/lists/*
