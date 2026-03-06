@@ -2,15 +2,7 @@
 set -e
 
 REPO="EdikSimonian/opencode"
-# Pick an install dir that exists, preferring /usr/local/bin
-if [ -d "/opt/homebrew/bin" ]; then
-  BIN_DIR="/opt/homebrew/bin"
-elif [ -d "/usr/local/bin" ]; then
-  BIN_DIR="/usr/local/bin"
-else
-  BIN_DIR="$HOME/.local/bin"
-  mkdir -p "$BIN_DIR"
-fi
+BIN_DIR="/usr/local/bin"
 BIN_NAME="opencode"
 
 # Detect OS
