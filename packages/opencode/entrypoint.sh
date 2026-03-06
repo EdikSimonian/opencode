@@ -2,6 +2,12 @@
 set -e
 
 setup_firewall() {
+  # Allow opting out of network isolation entirely
+  if [ -n "$OPENCODE_DISABLE_ISOLATION" ]; then
+    echo "opencode: OPENCODE_DISABLE_ISOLATION set — network isolation skipped" >&2
+    return 0
+  fi
+
   # Skip silently if we don't have NET_ADMIN capability
   iptables -L OUTPUT > /dev/null 2>&1 || {
     echo "opencode: NET_ADMIN not available, skipping network isolation" >&2

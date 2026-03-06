@@ -75,11 +75,19 @@ git push origin v0.1.5
 
 ### Docker
 
-A pre-built multi-arch image (`linux/amd64`, `linux/arm64`) is published to GitHub Container Registry on every release:
+A pre-built multi-arch image (`linux/amd64`, `linux/arm64`) is published to GitHub Container Registry on every release and automatically rebuilt daily when the base image updates:
 
 ```bash
 docker pull ghcr.io/ediksimonian/opencode:latest
 ```
+
+#### Base image
+
+The image is built on **[`dhi.io/debian-base:bookworm`](https://hub.docker.com/hardened-images/catalog/dhi/debian-base)** — Docker's official hardened Debian base image. It is:
+
+- Published with **zero known CVEs**, maintained by Docker with critical/high patches within 7 days
+- Signed with **SLSA Level 3 provenance** and includes a full SBOM
+- Rebuilt nightly; this image automatically rebuilds whenever its digest changes
 
 #### With Ollama
 
@@ -122,9 +130,32 @@ docker run -it --rm \
 
 #### Network isolation
 
-`--cap-add NET_ADMIN` enables network isolation: all outbound traffic is blocked except to the provider hosts you pass via env vars. The container runs as root so it can freely install packages (`npm install`, `pip install`, etc.), but `CAP_NET_ADMIN` is dropped before opencode starts so it cannot modify the firewall rules at runtime.
+`--cap-add NET_ADMIN` enables network isolation at startup:
+
+- All outbound IPv4 and IPv6 traffic is blocked by default
+- Only the provider hosts passed via `OLLAMA_HOST`, `LMSTUDIO_HOST`, or `OPENWEBUI_HOST` are allowed through
+- DNS is always allowed so hostnames resolve correctly
+- `CAP_NET_ADMIN` is dropped before opencode starts, so the process cannot modify the firewall rules at runtime
+- The container runs as root so it can freely install packages (`npm install`, `pip install`, `apt-get`, etc.)
 
 Without `--cap-add NET_ADMIN` the container starts normally with no network restrictions.
+
+To disable isolation while keeping `--cap-add NET_ADMIN` (e.g. for debugging):
+
+```bash
+-e OPENCODE_DISABLE_ISOLATION=1
+```
+
+#### Environment variables
+
+| Variable | Description |
+|---|---|
+| `OLLAMA_HOST` | Ollama base URL (e.g. `http://host.docker.internal:11434`) |
+| `LMSTUDIO_HOST` | LM Studio base URL (e.g. `http://host.docker.internal:1234`) |
+| `OPENWEBUI_HOST` | Open WebUI base URL |
+| `OPENWEBUI_API_KEY` | Open WebUI API key |
+| `OPENCODE_DISABLE_ISOLATION` | Set to any value to skip network isolation entirely |
+| `OPENCODE_PERMISSION` | Override tool permissions (default: `{"*":"allow"}`) |
 
 #### Persisting config
 
