@@ -123,8 +123,8 @@ docker run -it --rm \
   --cap-add NET_ADMIN \
   -v /path/to/your/project:/workspace \
   -w /workspace \
-  -e OPENWEBUI_HOST=http://your-openwebui-url \
-  -e OPENWEBUI_API_KEY=your-api-key \
+  -e OPENWEBUI_HOST=http://192.168.1.100:3000 \
+  -e OPENWEBUI_API_KEY=sk-your-api-key-here \
   ghcr.io/ediksimonian/opencode:latest
 ```
 
@@ -152,8 +152,8 @@ To disable isolation while keeping `--cap-add NET_ADMIN` (e.g. for debugging):
 |---|---|
 | `OLLAMA_HOST` | Ollama base URL (e.g. `http://host.docker.internal:11434`) |
 | `LMSTUDIO_HOST` | LM Studio base URL (e.g. `http://host.docker.internal:1234`) |
-| `OPENWEBUI_HOST` | Open WebUI base URL |
-| `OPENWEBUI_API_KEY` | Open WebUI API key |
+| `OPENWEBUI_HOST` | Open WebUI base URL (e.g. `http://192.168.1.100:3000`) |
+| `OPENWEBUI_API_KEY` | Open WebUI API key (generate in Settings → Account → API Keys) |
 | `OPENCODE_DISABLE_ISOLATION` | Set to any value to skip network isolation entirely |
 | `OPENCODE_PERMISSION` | Override tool permissions (default: `{"*":"allow"}`) |
 

@@ -38,14 +38,18 @@ setup_firewall() {
 
     host=$(echo "$url" | sed -E 's|^[a-z]+://||' | cut -d'/' -f1 | cut -d':' -f1)
     ips=$(getent hosts "$host" 2>/dev/null | awk '{print $1}')
-    [ -z "$ips" ] && ips="$host"
+
+    if [ -z "$ips" ]; then
+      echo "opencode: WARNING: could not resolve '$host' from $env_var — no firewall rule added" >&2
+      continue
+    fi
 
     for ip in $ips; do
       echo "opencode: allowing outbound to $env_var host $host ($ip)" >&2
       if echo "$ip" | grep -q ':'; then
         ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
       else
-        iptables -A OUTPUT -d "$ip" -j ACCEPT
+        iptables -A OUTPUT -d "$ip" -j ACCEPT || true
       fi
     done
   done
