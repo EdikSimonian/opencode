@@ -611,7 +611,8 @@ export namespace Provider {
     },
     async ollama(input) {
       try {
-        const response = await fetch("http://localhost:11434/api/tags", {
+        const ollamaBase = (process.env["OLLAMA_HOST"] ?? "http://localhost:11434").replace(/\/$/, "")
+        const response = await fetch(`${ollamaBase}/api/tags`, {
           signal: AbortSignal.timeout(2000),
         })
         if (!response.ok) return { autoload: false }
@@ -630,7 +631,7 @@ export namespace Provider {
             name: modelID,
             api: {
               id: modelID,
-              url: "http://localhost:11434/v1",
+              url: `${ollamaBase}/v1`,
               npm: "@ai-sdk/openai-compatible",
             },
             status: "active",
@@ -658,7 +659,7 @@ export namespace Provider {
         return {
           autoload: ollamaModels.length > 0,
           options: {
-            baseURL: "http://localhost:11434/v1",
+            baseURL: `${ollamaBase}/v1`,
             apiKey: "ollama",
             // Disable usage streaming — Ollama doesn't reliably send the final usage
             // chunk, causing @ai-sdk/openai-compatible to hang or produce no output.
@@ -671,7 +672,8 @@ export namespace Provider {
     },
     async lmstudio(input) {
       try {
-        const response = await fetch("http://127.0.0.1:1234/v1/models", {
+        const lmstudioBase = (process.env["LMSTUDIO_HOST"] ?? "http://127.0.0.1:1234").replace(/\/$/, "")
+        const response = await fetch(`${lmstudioBase}/v1/models`, {
           signal: AbortSignal.timeout(2000),
         })
         if (!response.ok) return { autoload: false }
@@ -690,7 +692,7 @@ export namespace Provider {
             name: modelID,
             api: {
               id: modelID,
-              url: "http://127.0.0.1:1234/v1",
+              url: `${lmstudioBase}/v1`,
               npm: "@ai-sdk/openai-compatible",
             },
             status: "active",
@@ -716,7 +718,7 @@ export namespace Provider {
         return {
           autoload: lmModels.length > 0,
           options: {
-            baseURL: "http://127.0.0.1:1234/v1",
+            baseURL: `${lmstudioBase}/v1`,
             apiKey: "lmstudio",
             includeUsage: false,
           },
