@@ -1,4 +1,4 @@
-FROM dhi.io/debian-base AS base
+FROM dhi.io/debian-base:bookworm AS base
 
 # Disable the runtime transpiler cache by default inside Docker containers.
 # On ephemeral containers, the cache is not useful
