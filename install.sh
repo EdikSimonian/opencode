@@ -59,12 +59,19 @@ else
   tar -xzf "$TMP_FILE" -C "$TMP_DIR"
 fi
 
+# Find the binary (handles nested paths like opencode-darwin-arm64/bin/opencode)
+BINARY=$(find "$TMP_DIR" -type f -name "opencode" | head -1)
+if [ -z "$BINARY" ]; then
+  echo "Could not find opencode binary in archive"
+  exit 1
+fi
+
 # Install
 echo "Installing to $BIN_DIR/$BIN_NAME..."
 if [ -w "$BIN_DIR" ]; then
-  mv "$TMP_DIR/opencode" "$BIN_DIR/$BIN_NAME"
+  mv "$BINARY" "$BIN_DIR/$BIN_NAME"
 else
-  sudo mv "$TMP_DIR/opencode" "$BIN_DIR/$BIN_NAME"
+  sudo mv "$BINARY" "$BIN_DIR/$BIN_NAME"
 fi
 chmod +x "$BIN_DIR/$BIN_NAME"
 
