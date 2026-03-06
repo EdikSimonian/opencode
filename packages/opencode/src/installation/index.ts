@@ -146,7 +146,9 @@ export namespace Installation {
             ? `unzip -o "$TMP/opencode.${ext}" -d "$TMP"`
             : `tar -xzf "$TMP/opencode.${ext}" -C "$TMP"`,
           `BINARY=$(find "$TMP" -type f -name opencode | head -1)`,
-          `mv "$BINARY" "${dest}"`,
+          // Remove the old binary first to avoid hanging when replacing a running executable
+          `rm -f "${dest}"`,
+          `cp "$BINARY" "${dest}"`,
           `chmod +x "${dest}"`,
           `rm -rf "$TMP"`,
         ].join(" && ")
