@@ -29,12 +29,51 @@ The following providers are removed from both the active provider list and the "
 
 To re-enable any of them, add them to `enabled_providers` in your `opencode.json`.
 
-### Build
+### Install (from GitHub releases)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EdikSimonian/opencode/dev/install.sh | sudo sh
+```
+
+Detects your OS and architecture automatically, installs to `/usr/local/bin/opencode`.
+
+### Upgrade
+
+From the command line:
+```bash
+opencode upgrade
+```
+
+Or reinstall the latest release:
+```bash
+curl -fsSL https://raw.githubusercontent.com/EdikSimonian/opencode/dev/install.sh | sudo sh
+```
+
+### Dev Mode (no build required)
+
 ```bash
 bun install
-bun run build --single   # builds for current platform only (macOS arm64)
+bun run dev   # runs TypeScript directly via Bun from packages/opencode/src/index.ts
 ```
+
+### Build
+
+```bash
+bun install
+cd packages/opencode
+bun run build --single   # current platform only (macOS arm64)
+bun run build            # all platforms (linux/darwin/musl/x64/arm64)
+```
+
 Binary output: `packages/opencode/dist/opencode-darwin-arm64/bin/opencode`
+
+### Release
+
+Tag a version to trigger the GitHub Actions build and publish binaries:
+```bash
+git tag v0.1.5
+git push origin v0.1.5
+```
 
 ---
 <p align="center">
