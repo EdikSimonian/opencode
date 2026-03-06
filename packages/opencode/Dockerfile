@@ -11,7 +11,6 @@ USER 0
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ripgrep \
       iptables \
-      libcap2-bin \
     && rm -rf /var/lib/apt/lists/*
 
 FROM base AS build-amd64
