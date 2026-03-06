@@ -4,7 +4,10 @@ FROM dhi.io/debian-base:bookworm AS base
 # On ephemeral containers, the cache is not useful
 ARG BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=${BUN_RUNTIME_TRANSPILER_CACHE_PATH}
-# bash is required by capsh (used to drop capabilities in entrypoint)
+# dhi.io/debian-base runs as 'nonroot' by default and has no named root entry
+# in /etc/passwd, so we use UID 0 directly. capsh in the entrypoint drops
+# CAP_NET_ADMIN before exec'ing opencode. bash is pre-installed in the base image.
+USER 0
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ripgrep \
       iptables \
