@@ -73,6 +73,75 @@ git tag v0.1.5
 git push origin v0.1.5
 ```
 
+### Docker
+
+A pre-built multi-arch image (`linux/amd64`, `linux/arm64`) is published to GitHub Container Registry on every release:
+
+```bash
+docker pull ghcr.io/ediksimonian/opencode:latest
+```
+
+#### With Ollama
+
+Ollama runs on your host machine. On macOS with Docker Desktop, `host.docker.internal` resolves to the host automatically:
+
+```bash
+docker run -it --rm \
+  --cap-add NET_ADMIN \
+  -v /path/to/your/project:/workspace \
+  -w /workspace \
+  -e OLLAMA_HOST=http://host.docker.internal:11434 \
+  ghcr.io/ediksimonian/opencode:latest
+```
+
+On Linux, use `--add-host` since `host.docker.internal` isn't automatic:
+
+```bash
+docker run -it --rm \
+  --cap-add NET_ADMIN \
+  -v /path/to/your/project:/workspace \
+  -w /workspace \
+  --add-host=host.docker.internal:host-gateway \
+  -e OLLAMA_HOST=http://host.docker.internal:11434 \
+  ghcr.io/ediksimonian/opencode:latest
+```
+
+#### With Open WebUI
+
+Generate an API key in Open WebUI under **Settings → Account → API Keys**, then:
+
+```bash
+docker run -it --rm \
+  --cap-add NET_ADMIN \
+  -v /path/to/your/project:/workspace \
+  -w /workspace \
+  -e OPENWEBUI_HOST=http://your-openwebui-url \
+  -e OPENWEBUI_API_KEY=your-api-key \
+  ghcr.io/ediksimonian/opencode:latest
+```
+
+#### Network isolation
+
+`--cap-add NET_ADMIN` enables network isolation: all outbound traffic is blocked except to the provider hosts you pass via env vars. The container runs as root so it can freely install packages (`npm install`, `pip install`, etc.), but `CAP_NET_ADMIN` is dropped before opencode starts so it cannot modify the firewall rules at runtime.
+
+Without `--cap-add NET_ADMIN` the container starts normally with no network restrictions.
+
+#### Persisting config
+
+Mount your opencode config directory to preserve settings between runs:
+
+```bash
+-v ~/.config/opencode:/root/.config/opencode
+```
+
+#### Building locally
+
+```bash
+bun install
+cd packages/opencode && bun run build
+docker build -t opencode packages/opencode
+```
+
 ---
 <p align="center">
   <a href="https://opencode.ai/discord"><img alt="Discord" src="https://img.shields.io/discord/1391832426048651334?style=flat-square&label=discord" /></a>
