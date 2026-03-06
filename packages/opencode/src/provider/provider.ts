@@ -727,6 +727,68 @@ export namespace Provider {
         return { autoload: false }
       }
     },
+    async openwebui(input) {
+      try {
+        const host = process.env["OPENWEBUI_HOST"]
+        if (!host) return { autoload: false }
+        const apiKey = process.env["OPENWEBUI_API_KEY"]
+        if (!apiKey) return { autoload: false }
+        const base = host.replace(/\/$/, "")
+        const response = await fetch(`${base}/api/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(2000),
+        })
+        if (!response.ok) return { autoload: false }
+        const data = (await response.json()) as { data: Array<{ id: string; name?: string }> }
+        const models = data.data ?? []
+
+        for (const key of Object.keys(input.models)) {
+          delete input.models[key]
+        }
+
+        for (const m of models) {
+          const modelID = m.id
+          input.models[modelID] = {
+            id: modelID,
+            providerID: "openwebui",
+            name: m.name ?? modelID,
+            api: {
+              id: modelID,
+              url: `${base}/api`,
+              npm: "@ai-sdk/openai-compatible",
+            },
+            status: "active",
+            headers: {},
+            options: {},
+            cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+            limit: { context: 128000, output: 8192 },
+            capabilities: {
+              temperature: true,
+              reasoning: false,
+              attachment: false,
+              toolcall: true,
+              input: { text: true, audio: false, image: false, video: false, pdf: false },
+              output: { text: true, audio: false, image: false, video: false, pdf: false },
+              interleaved: false,
+            },
+            release_date: "",
+            family: "",
+            variants: {},
+          }
+        }
+
+        return {
+          autoload: models.length > 0,
+          options: {
+            baseURL: `${base}/api`,
+            apiKey,
+            includeUsage: false,
+          },
+        }
+      } catch {
+        return { autoload: false }
+      }
+    },
   }
 
   export const Model = z
@@ -904,6 +966,18 @@ export namespace Provider {
       database["ollama"] = {
         id: "ollama",
         name: "Ollama",
+        source: "custom",
+        env: [],
+        options: {},
+        models: {},
+      }
+    }
+
+    // Add OpenWebUI provider
+    if (!database["openwebui"]) {
+      database["openwebui"] = {
+        id: "openwebui",
+        name: "Open WebUI",
         source: "custom",
         env: [],
         options: {},
@@ -1454,8 +1528,8 @@ export namespace Provider {
       return { providerID: entry.providerID, modelID: entry.modelID }
     }
 
-    // Prefer local providers first (ollama > lmstudio)
-    for (const localID of ["ollama", "lmstudio"]) {
+    // Prefer local providers first (ollama > lmstudio > openwebui)
+    for (const localID of ["ollama", "lmstudio", "openwebui"]) {
       const localProvider = providers[localID]
       if (localProvider && Object.keys(localProvider.models).length > 0) {
         const [model] = sort(Object.values(localProvider.models))
