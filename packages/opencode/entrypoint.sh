@@ -68,4 +68,4 @@ export OPENCODE_PERMISSION="${OPENCODE_PERMISSION:-{\"*\":\"allow\"}}"
 # cannot modify iptables rules, even if --cap-add NET_ADMIN was passed to docker run.
 # setpriv is used instead of capsh because capsh wraps via bash -c, which breaks
 # PTY inheritance and causes a blank screen in interactive TUI mode.
-exec setpriv --bounding-set=-cap_net_admin,-cap_net_raw -- /usr/local/bin/opencode "$@"
+exec setpriv --bounding-set=-net_admin,-net_raw -- /usr/local/bin/opencode "$@"
