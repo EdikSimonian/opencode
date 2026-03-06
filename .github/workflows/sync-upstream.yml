@@ -1,0 +1,82 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '0 7 * * *'  # Daily at 7am UTC
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/sst/opencode.git
+          git fetch upstream dev
+
+      - name: Check for new commits
+        id: check
+        run: |
+          COUNT=$(git rev-list HEAD..upstream/dev --count)
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          if [ "$COUNT" = "0" ]; then
+            echo "Already up to date with upstream"
+          else
+            echo "$COUNT new upstream commit(s) to merge"
+          fi
+
+      - name: Attempt merge
+        if: steps.check.outputs.count != '0'
+        id: merge
+        run: |
+          if git merge upstream/dev --no-ff --no-commit; then
+            echo "result=clean" >> $GITHUB_OUTPUT
+          else
+            echo "result=conflict" >> $GITHUB_OUTPUT
+            git merge --abort
+          fi
+
+      - name: Fail on conflicts
+        if: steps.check.outputs.count != '0' && steps.merge.outputs.result == 'conflict'
+        run: |
+          echo "::error::Merge conflicts detected — manual merge required."
+          echo "Run locally: git fetch upstream && git merge upstream/dev"
+          exit 1
+
+      - name: Commit merge
+        if: steps.check.outputs.count != '0' && steps.merge.outputs.result == 'clean'
+        run: |
+          git commit -m "chore: sync ${{ steps.check.outputs.count }} upstream commit(s) from sst/opencode"
+
+      - uses: oven-sh/setup-bun@v2
+        if: steps.check.outputs.count != '0' && steps.merge.outputs.result == 'clean'
+        with:
+          bun-version: "1.3.10"
+
+      - name: Install dependencies
+        if: steps.check.outputs.count != '0' && steps.merge.outputs.result == 'clean'
+        run: bun install
+
+      - name: Commit lockfile if updated
+        if: steps.check.outputs.count != '0' && steps.merge.outputs.result == 'clean'
+        run: |
+          if ! git diff --quiet bun.lock; then
+            git add bun.lock
+            git commit -m "chore: update bun.lock after upstream sync"
+          fi
+
+      - name: Push to dev
+        if: steps.check.outputs.count != '0' && steps.merge.outputs.result == 'clean'
+        run: git push origin dev
