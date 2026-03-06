@@ -60,6 +60,7 @@ export namespace Installation {
   export async function method() {
     if (process.execPath.includes(path.join(".opencode", "bin"))) return "curl"
     if (process.execPath.includes(path.join(".local", "bin"))) return "curl"
+    if (process.execPath.startsWith("/usr/local/bin")) return "curl"
     const exec = process.execPath.toLowerCase()
 
     const checks = [
@@ -137,10 +138,19 @@ export namespace Installation {
         const ext = platform === "linux" ? "tar.gz" : "zip"
         const name = `opencode-${platform}-${arch}`
         const url = `https://github.com/EdikSimonian/opencode/releases/download/v${target}/${name}.${ext}`
-        const installDir = path.dirname(path.dirname(process.execPath))
-        cmd = $`sh -c ${"curl -fsSL " + url + " | tar -xz -C " + path.join(installDir, "bin") + " opencode"}`.env({
-          ...process.env,
-        })
+        const dest = process.execPath
+        const script = [
+          `TMP=$(mktemp -d)`,
+          `curl -fsSL "${url}" -o "$TMP/opencode.${ext}"`,
+          ext === "zip"
+            ? `unzip -o "$TMP/opencode.${ext}" -d "$TMP"`
+            : `tar -xzf "$TMP/opencode.${ext}" -C "$TMP"`,
+          `BINARY=$(find "$TMP" -type f -name opencode | head -1)`,
+          `mv "$BINARY" "${dest}"`,
+          `chmod +x "${dest}"`,
+          `rm -rf "$TMP"`,
+        ].join(" && ")
+        cmd = $`sh -c ${script}`.env({ ...process.env })
         break
       }
       case "npm":
