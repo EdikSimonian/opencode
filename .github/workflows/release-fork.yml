@@ -20,7 +20,12 @@ jobs:
 
       - name: Build all targets
         working-directory: packages/opencode
-        run: bun run build
+        env:
+          OPENCODE_VERSION: ${{ github.ref_name }}
+        run: |
+          # Strip 'v' prefix from tag (v0.1.2-fork.1 → 0.1.2-fork.1)
+          export OPENCODE_VERSION="${OPENCODE_VERSION#v}"
+          bun run build
 
       - name: Create release archives
         working-directory: packages/opencode/dist
