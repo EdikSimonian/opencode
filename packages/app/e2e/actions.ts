@@ -3,7 +3,7 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { execSync } from "node:child_process"
-import { modKey, serverUrl } from "./utils"
+import { createSdk, modKey, resolveDirectory, serverUrl } from "./utils"
 import {
   dropdownMenuTriggerSelector,
   dropdownMenuContentSelector,
@@ -18,7 +18,6 @@ import {
   workspaceItemSelector,
   workspaceMenuTriggerSelector,
 } from "./selectors"
-import type { createSdk } from "./utils"
 
 export async function defocus(page: Page) {
   await page
@@ -190,7 +189,7 @@ export async function createTestProject() {
     stdio: "ignore",
   })
 
-  return root
+  return resolveDirectory(root)
 }
 
 export async function cleanupTestProject(directory: string) {
@@ -307,6 +306,57 @@ export async function clickListItem(
   return item
 }
 
+async function status(sdk: ReturnType<typeof createSdk>, sessionID: string) {
+  const data = await sdk.session
+    .status()
+    .then((x) => x.data ?? {})
+    .catch(() => undefined)
+  return data?.[sessionID]
+}
+
+async function stable(sdk: ReturnType<typeof createSdk>, sessionID: string, timeout = 10_000) {
+  let prev = ""
+  await expect
+    .poll(
+      async () => {
+        const info = await sdk.session
+          .get({ sessionID })
+          .then((x) => x.data)
+          .catch(() => undefined)
+        if (!info) return true
+        const next = `${info.title}:${info.time.updated ?? info.time.created}`
+        if (next !== prev) {
+          prev = next
+          return false
+        }
+        return true
+      },
+      { timeout },
+    )
+    .toBe(true)
+}
+
+export async function waitSessionIdle(sdk: ReturnType<typeof createSdk>, sessionID: string, timeout = 30_000) {
+  await expect.poll(() => status(sdk, sessionID).then((x) => !x || x.type === "idle"), { timeout }).toBe(true)
+}
+
+export async function cleanupSession(input: {
+  sessionID: string
+  directory?: string
+  sdk?: ReturnType<typeof createSdk>
+}) {
+  const sdk = input.sdk ?? (input.directory ? createSdk(input.directory) : undefined)
+  if (!sdk) throw new Error("cleanupSession requires sdk or directory")
+  await waitSessionIdle(sdk, input.sessionID, 5_000).catch(() => undefined)
+  const current = await status(sdk, input.sessionID).catch(() => undefined)
+  if (current && current.type !== "idle") {
+    await sdk.session.abort({ sessionID: input.sessionID }).catch(() => undefined)
+    await waitSessionIdle(sdk, input.sessionID).catch(() => undefined)
+  }
+  await stable(sdk, input.sessionID).catch(() => undefined)
+  await sdk.session.delete({ sessionID: input.sessionID }).catch(() => undefined)
+}
+
 export async function withSession<T>(
   sdk: ReturnType<typeof createSdk>,
   title: string,
@@ -318,7 +368,7 @@ export async function withSession<T>(
   try {
     return await callback(session)
   } finally {
-    await sdk.session.delete({ sessionID: session.id }).catch(() => undefined)
+    await cleanupSession({ sdk, sessionID: session.id })
   }
 }
 
