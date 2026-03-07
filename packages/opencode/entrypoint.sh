@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
+# Resolve a hostname with a 2-second timeout; returns IPs or empty string
+resolve_host() {
+  timeout 2 getent hosts "$1" 2>/dev/null | awk '{print $1}' || true
+}
+
 setup_firewall() {
   # Allow opting out of network isolation entirely
   if [ -n "$OPENCODE_DISABLE_ISOLATION" ]; then
@@ -15,15 +20,14 @@ setup_firewall() {
   }
 
   # ── Resolve all hostnames BEFORE applying DROP policy ─────────────────────
-  # getent hosts can hang if DNS is blocked, so do all resolution first.
+  # getent hosts can hang in Docker Desktop, so use timeouts on all lookups.
   _RESOLVED_PKG=""
   for pkg_host in \
     deb.debian.org security.debian.org \
     registry.npmjs.org \
     pypi.org files.pythonhosted.org \
     models.dev; do
-    pkg_ips=$(getent hosts "$pkg_host" 2>/dev/null | awk '{print $1}')
-    for ip in $pkg_ips; do
+    for ip in $(resolve_host "$pkg_host"); do
       _RESOLVED_PKG="$_RESOLVED_PKG $ip"
     done
   done
@@ -43,8 +47,7 @@ setup_firewall() {
   [ -n "$COHERE_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.cohere.com"
 
   for api_host in $_PROVIDER_HOSTS; do
-    api_ips=$(getent hosts "$api_host" 2>/dev/null | awk '{print $1}')
-    for ip in $api_ips; do
+    for ip in $(resolve_host "$api_host"); do
       echo "opencode: allowing outbound to $api_host ($ip)" >&2
       _RESOLVED_CLOUD="$_RESOLVED_CLOUD $ip"
     done
@@ -57,7 +60,7 @@ setup_firewall() {
     [ -z "$url" ] && continue
 
     host=$(echo "$url" | sed -E 's|^[a-z]+://||' | cut -d'/' -f1 | cut -d':' -f1)
-    ips=$(getent hosts "$host" 2>/dev/null | awk '{print $1}')
+    ips=$(resolve_host "$host")
 
     if [ -z "$ips" ]; then
       echo "opencode: WARNING: could not resolve '$host' from $env_var — no firewall rule added" >&2
@@ -89,26 +92,8 @@ setup_firewall() {
   ip6tables -A OUTPUT -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
   ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 
-  # Add pre-resolved package host IPs
-  for ip in $_RESOLVED_PKG; do
-    if echo "$ip" | grep -q ':'; then
-      ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
-    else
-      iptables -A OUTPUT -d "$ip" -j ACCEPT || true
-    fi
-  done
-
-  # Add pre-resolved cloud provider IPs
-  for ip in $_RESOLVED_CLOUD; do
-    if echo "$ip" | grep -q ':'; then
-      ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
-    else
-      iptables -A OUTPUT -d "$ip" -j ACCEPT || true
-    fi
-  done
-
-  # Add pre-resolved local provider IPs
-  for ip in $_RESOLVED_LOCAL; do
+  # Add pre-resolved IPs (package hosts, cloud providers, local providers)
+  for ip in $_RESOLVED_PKG $_RESOLVED_CLOUD $_RESOLVED_LOCAL; do
     if echo "$ip" | grep -q ':'; then
       ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
     else
@@ -118,7 +103,6 @@ setup_firewall() {
 
   # REJECT remaining traffic so blocked connections fail instantly instead of
   # hanging for 30-120s on TCP timeouts (DROP silently discards packets).
-  # Without this, bun plugin installs block the TUI from starting.
   iptables -A OUTPUT -p tcp -j REJECT --reject-with tcp-reset
   iptables -A OUTPUT -j REJECT --reject-with icmp-port-unreachable
   ip6tables -A OUTPUT -p tcp -j REJECT --reject-with tcp-reset 2>/dev/null || true
