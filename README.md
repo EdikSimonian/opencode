@@ -83,29 +83,16 @@ docker pull ghcr.io/ediksimonian/opencode:latest
 
 #### Base image
 
-The image is built on **Alpine Linux** — a minimal, security-focused distribution with a tiny attack surface. The image is automatically rebuilt daily whenever the Alpine base image updates.
+The image is built on **dhi.io/debian-base** — a hardened, zero-CVE Debian image. It is automatically rebuilt daily whenever the base image updates.
 
 #### With Ollama
 
-Ollama runs on your host machine. On macOS with Docker Desktop, `host.docker.internal` resolves to the host automatically:
-
 ```bash
 docker run -it --rm \
   --cap-add NET_ADMIN \
+  -p 80:80 -p 443:443 \
   -v /path/to/your/project:/workspace \
   -w /workspace \
-  -e OLLAMA_HOST=http://host.docker.internal:11434 \
-  ghcr.io/ediksimonian/opencode:latest
-```
-
-On Linux, use `--add-host` since `host.docker.internal` isn't automatic:
-
-```bash
-docker run -it --rm \
-  --cap-add NET_ADMIN \
-  -v /path/to/your/project:/workspace \
-  -w /workspace \
-  --add-host=host.docker.internal:host-gateway \
   -e OLLAMA_HOST=http://host.docker.internal:11434 \
   ghcr.io/ediksimonian/opencode:latest
 ```
@@ -117,9 +104,10 @@ Generate an API key in Open WebUI under **Settings → Account → API Keys**, t
 ```bash
 docker run -it --rm \
   --cap-add NET_ADMIN \
+  -p 80:80 -p 443:443 \
   -v /path/to/your/project:/workspace \
   -w /workspace \
-  -e OPENWEBUI_HOST=http://192.168.1.100:3000 \
+  -e OPENWEBUI_HOST=http://host.docker.internal:3000 \
   -e OPENWEBUI_API_KEY=sk-your-api-key-here \
   ghcr.io/ediksimonian/opencode:latest
 ```
@@ -129,10 +117,10 @@ docker run -it --rm \
 `--cap-add NET_ADMIN` enables network isolation at startup:
 
 - All outbound IPv4 and IPv6 traffic is blocked by default
-- Only the provider hosts passed via `OLLAMA_HOST`, `LMSTUDIO_HOST`, or `OPENWEBUI_HOST` are allowed through
+- Provider hosts passed via `OLLAMA_HOST`, `LMSTUDIO_HOST`, or `OPENWEBUI_HOST` are allowed through
+- Package registries (deb.debian.org, registry.npmjs.org, pypi.org) are whitelisted so opencode can install packages
 - DNS is always allowed so hostnames resolve correctly
-- `CAP_NET_ADMIN` is dropped before opencode starts, so the process cannot modify the firewall rules at runtime
-- The container runs as root so it can freely install packages (`npm install`, `pip install`, `apt-get`, etc.)
+- Cloud AI APIs (OpenAI, Anthropic, etc.) remain blocked
 
 Without `--cap-add NET_ADMIN` the container starts normally with no network restrictions.
 
