@@ -54,6 +54,14 @@ setup_firewall() {
     done
   done
 
+  # REJECT remaining traffic so blocked connections fail instantly instead of
+  # hanging for 30-120s on TCP timeouts (DROP silently discards packets).
+  # Without this, bun plugin installs block the TUI from starting.
+  iptables -A OUTPUT -p tcp -j REJECT --reject-with tcp-reset
+  iptables -A OUTPUT -j REJECT --reject-with icmp-port-unreachable
+  ip6tables -A OUTPUT -p tcp -j REJECT --reject-with tcp-reset 2>/dev/null || true
+  ip6tables -A OUTPUT -j REJECT --reject-with icmp6-port-unreachable 2>/dev/null || true
+
   echo "opencode: network isolation active — all other outbound traffic blocked" >&2
 }
 
