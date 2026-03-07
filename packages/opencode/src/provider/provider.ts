@@ -858,7 +858,7 @@ export namespace Provider {
               toolcall: true,
               input: { text: true, audio: false, image: false, video: false, pdf: false },
               output: { text: true, audio: false, image: false, video: false, pdf: false },
-              interleaved: false,
+              interleaved: { field: "reasoning_content" },
             },
             release_date: "2026-02-11",
             family: "glm",
