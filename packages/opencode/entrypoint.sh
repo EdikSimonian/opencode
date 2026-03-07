@@ -46,6 +46,32 @@ setup_firewall() {
     done
   done
 
+  # ── Allow cloud provider APIs when API keys are set ─────────────────────────
+  # Map: ENV_VAR -> API hostname
+  [ -n "$DEEPINFRA_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.deepinfra.com"
+  [ -n "$ANTHROPIC_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.anthropic.com"
+  [ -n "$OPENAI_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.openai.com"
+  [ -n "$GROQ_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.groq.com"
+  [ -n "$TOGETHER_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.together.xyz"
+  [ -n "$XAI_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.x.ai"
+  [ -n "$MISTRAL_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.mistral.ai"
+  [ -n "$GOOGLE_GENERATIVE_AI_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }generativelanguage.googleapis.com"
+  [ -n "$PERPLEXITY_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.perplexity.ai"
+  [ -n "$CEREBRAS_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.cerebras.ai"
+  [ -n "$COHERE_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.cohere.com"
+
+  for api_host in $_PROVIDER_HOSTS; do
+    api_ips=$(getent hosts "$api_host" 2>/dev/null | awk '{print $1}')
+    for ip in $api_ips; do
+      echo "opencode: allowing outbound to $api_host ($ip)" >&2
+      if echo "$ip" | grep -q ':'; then
+        ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
+      else
+        iptables -A OUTPUT -d "$ip" -j ACCEPT || true
+      fi
+    done
+  done
+
   # ── Allow configured provider hosts (IPv4 + IPv6) ───────────────────────────
   for env_var in OLLAMA_HOST LMSTUDIO_HOST OPENWEBUI_HOST; do
     url=$(eval "echo \"\$$env_var\"")
@@ -108,22 +134,42 @@ generate_agents_md() {
     cat > "$net_file" <<NETEOF
 - **Firewall**: Active — outbound traffic is filtered
 - **Allowed**: DNS, package registries (apt/npm/pip), and configured provider hosts
-- **Blocked**: All other outbound traffic (cloud AI APIs, arbitrary internet access)
+- **Blocked**: All other outbound traffic not explicitly whitelisted
 NETEOF
-    [ -n "$OLLAMA_HOST" ] && echo "- **Ollama**: $OLLAMA_HOST" >> "$net_file"
-    [ -n "$LMSTUDIO_HOST" ] && echo "- **LM Studio**: $LMSTUDIO_HOST" >> "$net_file"
-    [ -n "$OPENWEBUI_HOST" ] && echo "- **Open WebUI**: $OPENWEBUI_HOST" >> "$net_file"
   else
     echo "- **Firewall**: Not active (no NET_ADMIN capability) — all outbound traffic is allowed" > "$net_file"
   fi
 
-  # Replace placeholder with network info
-  awk -v netfile="$net_file" '
+  # Build provider status
+  local prov_file
+  prov_file=$(mktemp)
+
+  local has_provider=0
+  [ -n "$OLLAMA_HOST" ] && echo "- **Ollama**: $OLLAMA_HOST" >> "$prov_file" && has_provider=1
+  [ -n "$LMSTUDIO_HOST" ] && echo "- **LM Studio**: $LMSTUDIO_HOST" >> "$prov_file" && has_provider=1
+  [ -n "$OPENWEBUI_HOST" ] && echo "- **Open WebUI**: $OPENWEBUI_HOST" >> "$prov_file" && has_provider=1
+  [ -n "$DEEPINFRA_API_KEY" ] && echo "- **DeepInfra**: Connected (api.deepinfra.com whitelisted)" >> "$prov_file" && has_provider=1
+  [ -n "$ANTHROPIC_API_KEY" ] && echo "- **Anthropic**: Connected (api.anthropic.com whitelisted)" >> "$prov_file" && has_provider=1
+  [ -n "$OPENAI_API_KEY" ] && echo "- **OpenAI**: Connected (api.openai.com whitelisted)" >> "$prov_file" && has_provider=1
+  [ -n "$GROQ_API_KEY" ] && echo "- **Groq**: Connected (api.groq.com whitelisted)" >> "$prov_file" && has_provider=1
+  [ -n "$TOGETHER_API_KEY" ] && echo "- **Together AI**: Connected (api.together.xyz whitelisted)" >> "$prov_file" && has_provider=1
+  [ -n "$XAI_API_KEY" ] && echo "- **xAI**: Connected (api.x.ai whitelisted)" >> "$prov_file" && has_provider=1
+  [ -n "$MISTRAL_API_KEY" ] && echo "- **Mistral**: Connected (api.mistral.ai whitelisted)" >> "$prov_file" && has_provider=1
+  [ -n "$GOOGLE_GENERATIVE_AI_API_KEY" ] && echo "- **Google AI**: Connected (generativelanguage.googleapis.com whitelisted)" >> "$prov_file" && has_provider=1
+  [ -n "$PERPLEXITY_API_KEY" ] && echo "- **Perplexity**: Connected (api.perplexity.ai whitelisted)" >> "$prov_file" && has_provider=1
+
+  if [ "$has_provider" -eq 0 ]; then
+    echo "- No providers configured" > "$prov_file"
+  fi
+
+  # Replace placeholders with generated content
+  awk -v netfile="$net_file" -v provfile="$prov_file" '
     /\{\{NETWORK_STATUS\}\}/ { while ((getline line < netfile) > 0) print line; next }
+    /\{\{PROVIDER_STATUS\}\}/ { while ((getline line < provfile) > 0) print line; next }
     { print }
   ' "$template" > "$agents_file"
 
-  rm -f "$net_file"
+  rm -f "$net_file" "$prov_file"
 }
 
 generate_agents_md

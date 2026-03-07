@@ -20,6 +20,7 @@ Use the bash tool's `background: true` parameter to start long-running processes
 
 ## Network
 {{NETWORK_STATUS}}
+{{PROVIDER_STATUS}}
 
 ## Pre-installed tools
 - `ripgrep` (rg) — fast file search
