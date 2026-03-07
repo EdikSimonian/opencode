@@ -18,7 +18,7 @@ jobs:
       - name: Get current base image digest
         id: base
         run: |
-          DIGEST=$(docker buildx imagetools inspect alpine:latest \
+          DIGEST=$(docker buildx imagetools inspect dhi.io/debian-base:bookworm \
             --format '{{.Manifest.Digest}}')
           echo "digest=$DIGEST" >> $GITHUB_OUTPUT
           echo "Current digest: $DIGEST"

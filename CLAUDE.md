@@ -46,11 +46,11 @@ git tag -d vX.Y.Z 2>/dev/null; git tag vX.Y.Z && git push origin vX.Y.Z
 
 ## Docker image details
 
-- Base: `alpine:latest` — minimal, small attack surface, works reliably with the TUI
-- Uses musl binaries (`opencode-linux-x64-baseline-musl`, `opencode-linux-arm64-musl`)
-- Entrypoint sets up iptables isolation then execs opencode directly
+- Base: `dhi.io/debian-base` — hardened Debian with zero CVEs
+- Uses glibc binaries (`opencode-linux-x64-baseline`, `opencode-linux-arm64`)
+- Entrypoint sets up iptables isolation (REJECT, not DROP) then execs opencode directly
 - `OPENCODE_PERMISSION={"*":"allow"}` is baked in to suppress tool confirmation prompts
-- **DO NOT switch to dhi.io/debian-base** — caused blank TUI screens, missing /etc/passwd entries, musl/glibc mismatches, and multiple release cycles of fixes that never fully worked
+- Previous blank-screen issues with Debian were misattributed to the base image; the real cause was iptables DROP hanging TCP connections (fixed with REJECT)
 
 ## Key env vars (Docker)
 
