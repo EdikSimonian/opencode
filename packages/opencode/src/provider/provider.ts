@@ -790,6 +790,87 @@ export namespace Provider {
         return { autoload: false }
       }
     },
+    async deepinfra(input) {
+      try {
+        const apiKey = process.env["DEEPINFRA_API_KEY"]
+        if (!apiKey) return { autoload: false }
+        const response = await fetch("https://api.deepinfra.com/v1/openai/models", {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(5000),
+        })
+        if (!response.ok) return { autoload: false }
+        const data = (await response.json()) as { data: Array<{ id: string; owned_by?: string }> }
+        const apiModels = data.data ?? []
+
+        // Merge API models into existing models from models.dev
+        for (const m of apiModels) {
+          const modelID = m.id
+          if (input.models[modelID]) continue // already in models.dev, keep curated data
+          input.models[modelID] = {
+            id: modelID,
+            providerID: "deepinfra",
+            name: modelID.split("/").pop() ?? modelID,
+            api: {
+              id: modelID,
+              url: "https://api.deepinfra.com/v1/openai",
+              npm: "@ai-sdk/deepinfra",
+            },
+            status: "active",
+            headers: {},
+            options: {},
+            cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+            limit: { context: 128000, output: 8192 },
+            capabilities: {
+              temperature: true,
+              reasoning: false,
+              attachment: false,
+              toolcall: true,
+              input: { text: true, audio: false, image: false, video: false, pdf: false },
+              output: { text: true, audio: false, image: false, video: false, pdf: false },
+              interleaved: false,
+            },
+            release_date: "",
+            family: "",
+            variants: {},
+          }
+        }
+
+        // Ensure GLM-5 is always available (models.dev may not list it under deepinfra)
+        if (!input.models["zai-org/GLM-5"]) {
+          input.models["zai-org/GLM-5"] = {
+            id: "zai-org/GLM-5",
+            providerID: "deepinfra",
+            name: "GLM-5",
+            api: {
+              id: "zai-org/GLM-5",
+              url: "https://api.deepinfra.com/v1/openai",
+              npm: "@ai-sdk/deepinfra",
+            },
+            status: "active",
+            headers: {},
+            options: {},
+            cost: { input: 1, output: 3.2, cache: { read: 0, write: 0 } },
+            limit: { context: 202752, output: 131072 },
+            capabilities: {
+              temperature: true,
+              reasoning: true,
+              attachment: false,
+              toolcall: true,
+              input: { text: true, audio: false, image: false, video: false, pdf: false },
+              output: { text: true, audio: false, image: false, video: false, pdf: false },
+              interleaved: false,
+            },
+            release_date: "2026-02-11",
+            family: "glm",
+            variants: {},
+          }
+        }
+
+        return { autoload: true }
+      } catch {
+        return { autoload: false }
+      }
+    },
   }
 
   export const Model = z
