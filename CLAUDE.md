@@ -44,11 +44,11 @@ git tag -d vX.Y.Z 2>/dev/null; git tag vX.Y.Z && git push origin vX.Y.Z
 
 ## Docker image details
 
-- Base: `dhi.io/debian-base:bookworm` (zero CVE, hardened, requires Docker Hub auth in CI)
-- Uses glibc binaries (`opencode-linux-x64-baseline`, `opencode-linux-arm64`) — musl binaries do NOT work on Debian
-- `HOME=/root` must be set explicitly — DHI image has no root entry in `/etc/passwd`
-- Entrypoint sets up iptables isolation then execs opencode directly (no capsh/setpriv wrappers — both caused blank TUI screens)
+- Base: `alpine:latest` — minimal, small attack surface, works reliably with the TUI
+- Uses musl binaries (`opencode-linux-x64-baseline-musl`, `opencode-linux-arm64-musl`)
+- Entrypoint sets up iptables isolation then execs opencode directly
 - `OPENCODE_PERMISSION={"*":"allow"}` is baked in to suppress tool confirmation prompts
+- **DO NOT switch to dhi.io/debian-base** — caused blank TUI screens, missing /etc/passwd entries, musl/glibc mismatches, and multiple release cycles of fixes that never fully worked
 
 ## Key env vars (Docker)
 

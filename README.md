@@ -83,11 +83,7 @@ docker pull ghcr.io/ediksimonian/opencode:latest
 
 #### Base image
 
-The image is built on **[`dhi.io/debian-base:bookworm`](https://hub.docker.com/hardened-images/catalog/dhi/debian-base)** — Docker's official hardened Debian base image. It is:
-
-- Published with **zero known CVEs**, maintained by Docker with critical/high patches within 7 days
-- Signed with **SLSA Level 3 provenance** and includes a full SBOM
-- Rebuilt nightly; this image automatically rebuilds whenever its digest changes
+The image is built on **Alpine Linux** — a minimal, security-focused distribution with a tiny attack surface. The image is automatically rebuilt daily whenever the Alpine base image updates.
 
 #### With Ollama
 

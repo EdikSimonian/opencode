@@ -63,6 +63,4 @@ setup_firewall
 # Can be overridden by passing OPENCODE_PERMISSION explicitly.
 export OPENCODE_PERMISSION="${OPENCODE_PERMISSION:-{\"*\":\"allow\"}}"
 
-# Run opencode directly. The iptables rules set above are enforced by the kernel
-# regardless of process capabilities — they persist for the container's lifetime.
 exec /usr/local/bin/opencode "$@"
