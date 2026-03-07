@@ -86,4 +86,46 @@ setup_firewall
 # Can be overridden by passing OPENCODE_PERMISSION explicitly.
 export OPENCODE_PERMISSION="${OPENCODE_PERMISSION:-{\"*\":\"allow\"}}"
 
+# ── Generate AGENTS.md with runtime environment info ─────────────────────────
+generate_agents_md() {
+  local agents_dir="/root/.config/opencode"
+  local agents_file="$agents_dir/AGENTS.md"
+  local template="/docker-agents.md"
+
+  # Don't overwrite if user mounted their own
+  [ -f "$agents_file" ] && return 0
+  [ ! -f "$template" ] && return 0
+
+  mkdir -p "$agents_dir"
+
+  # Build network status into a temp file
+  local net_file
+  net_file=$(mktemp)
+
+  if [ -n "$OPENCODE_DISABLE_ISOLATION" ]; then
+    echo "- **Firewall**: Disabled — all outbound traffic is allowed" > "$net_file"
+  elif iptables -L OUTPUT > /dev/null 2>&1; then
+    cat > "$net_file" <<NETEOF
+- **Firewall**: Active — outbound traffic is filtered
+- **Allowed**: DNS, package registries (apt/npm/pip), and configured provider hosts
+- **Blocked**: All other outbound traffic (cloud AI APIs, arbitrary internet access)
+NETEOF
+    [ -n "$OLLAMA_HOST" ] && echo "- **Ollama**: $OLLAMA_HOST" >> "$net_file"
+    [ -n "$LMSTUDIO_HOST" ] && echo "- **LM Studio**: $LMSTUDIO_HOST" >> "$net_file"
+    [ -n "$OPENWEBUI_HOST" ] && echo "- **Open WebUI**: $OPENWEBUI_HOST" >> "$net_file"
+  else
+    echo "- **Firewall**: Not active (no NET_ADMIN capability) — all outbound traffic is allowed" > "$net_file"
+  fi
+
+  # Replace placeholder with network info
+  awk -v netfile="$net_file" '
+    /\{\{NETWORK_STATUS\}\}/ { while ((getline line < netfile) > 0) print line; next }
+    { print }
+  ' "$template" > "$agents_file"
+
+  rm -f "$net_file"
+}
+
+generate_agents_md
+
 exec /usr/local/bin/opencode "$@"

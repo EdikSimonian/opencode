@@ -23,5 +23,6 @@ COPY dist/opencode-linux-arm64/bin/opencode /usr/local/bin/opencode
 ARG TARGETARCH
 FROM build-${TARGETARCH}
 COPY entrypoint.sh /entrypoint.sh
+COPY docker-agents.md /docker-agents.md
 RUN chmod +x /entrypoint.sh && opencode --version
 ENTRYPOINT ["/entrypoint.sh"]
