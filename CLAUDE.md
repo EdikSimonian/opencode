@@ -35,6 +35,8 @@ This already happened once and spiked usage from 0% to 100% in a single prompt.
 
 ## Tagging and releasing
 
+**Use `v0.x.x` versioning only.** Do not use v1.x or higher until explicitly told otherwise.
+
 Tags on `v0.x.x` that already exist locally (fetched from upstream sst/opencode) must be
 deleted locally before retagging on our commit:
 
