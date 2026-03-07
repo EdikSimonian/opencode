@@ -31,6 +31,21 @@ setup_firewall() {
   ip6tables -A OUTPUT -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
   ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 
+  # ── Allow package managers (apt, npm, pip) ──────────────────────────────────
+  for pkg_host in \
+    deb.debian.org security.debian.org \
+    registry.npmjs.org \
+    pypi.org files.pythonhosted.org; do
+    pkg_ips=$(getent hosts "$pkg_host" 2>/dev/null | awk '{print $1}')
+    for ip in $pkg_ips; do
+      if echo "$ip" | grep -q ':'; then
+        ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
+      else
+        iptables -A OUTPUT -d "$ip" -j ACCEPT || true
+      fi
+    done
+  done
+
   # ── Allow configured provider hosts (IPv4 + IPv6) ───────────────────────────
   for env_var in OLLAMA_HOST LMSTUDIO_HOST OPENWEBUI_HOST; do
     url=$(eval "echo \"\$$env_var\"")
