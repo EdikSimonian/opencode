@@ -5,6 +5,34 @@
 This is a fork of `sst/opencode` (`dev` branch) maintained at `EdikSimonian/opencode`.
 Key customizations: local provider auto-detection (Ollama, LMStudio, OpenWebUI), cloud providers hidden by default, Docker image with network isolation.
 
+---
+
+## ⚠️ CRITICAL — NEVER RUN OPENCODE AND CAPTURE STDOUT IN A TOOL CALL ⚠️
+
+**THIS WILL INSTANTLY CONSUME THE ENTIRE CONTEXT WINDOW AND EXHAUST THE USER'S CLAUDE USAGE.**
+
+Without a TTY, opencode dumps its entire TUI as raw ANSI escape sequences to stdout.
+A single run can produce **tens of thousands of tokens** in one tool result.
+
+```bash
+# ❌ NEVER DO THIS — destroys context window
+docker run ... opencode
+timeout 5 /usr/local/bin/opencode
+docker exec container opencode
+
+# ✅ ALWAYS discard stdout, capture only stderr
+timeout 5 /usr/local/bin/opencode > /dev/null 2>/tmp/stderr
+cat /tmp/stderr
+
+# ✅ Check log files instead
+find /root/.local/share/opencode/log -name "*.log" | xargs tail -20
+```
+
+This already happened once and spiked usage from 0% to 100% in a single prompt.
+**Always redirect stdout to /dev/null when running any TUI application in a tool call.**
+
+---
+
 ## Tagging and releasing
 
 Tags on `v0.x.x` that already exist locally (fetched from upstream sst/opencode) must be
@@ -12,26 +40,6 @@ deleted locally before retagging on our commit:
 
 ```bash
 git tag -d vX.Y.Z 2>/dev/null; git tag vX.Y.Z && git push origin vX.Y.Z
-```
-
-## Docker debugging — NEVER capture raw TUI stdout
-
-**Do not run opencode and capture its stdout in a tool call.** Without a TTY, opencode
-dumps its entire TUI as raw ANSI escape sequences. This can consume the entire context
-window in a single tool result.
-
-Always discard stdout and capture only stderr or log files:
-
-```bash
-# WRONG — dumps thousands of escape sequences into context
-timeout 5 /usr/local/bin/opencode 2>/tmp/stderr
-
-# CORRECT — discard TUI output, capture only errors
-timeout 5 /usr/local/bin/opencode > /dev/null 2>/tmp/stderr
-cat /tmp/stderr
-
-# Or check log files directly
-find /root/.local/share/opencode/log -name "*.log" | xargs tail -20
 ```
 
 ## Docker image details
