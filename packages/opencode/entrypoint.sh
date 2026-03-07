@@ -63,9 +63,6 @@ setup_firewall
 # Can be overridden by passing OPENCODE_PERMISSION explicitly.
 export OPENCODE_PERMISSION="${OPENCODE_PERMISSION:-{\"*\":\"allow\"}}"
 
-# Drop CAP_NET_ADMIN and CAP_NET_RAW from the bounding set before exec'ing opencode.
-# This means opencode runs as root (full filesystem + package install access) but
-# cannot modify iptables rules, even if --cap-add NET_ADMIN was passed to docker run.
-# setpriv is used instead of capsh because capsh wraps via bash -c, which breaks
-# PTY inheritance and causes a blank screen in interactive TUI mode.
-exec setpriv --bounding-set=-net_admin,-net_raw -- /usr/local/bin/opencode "$@"
+# Run opencode directly. The iptables rules set above are enforced by the kernel
+# regardless of process capabilities — they persist for the container's lifetime.
+exec /usr/local/bin/opencode "$@"
