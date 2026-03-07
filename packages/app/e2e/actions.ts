@@ -7,6 +7,7 @@ import { createSdk, modKey, resolveDirectory, serverUrl } from "./utils"
 import {
   dropdownMenuTriggerSelector,
   dropdownMenuContentSelector,
+  sessionTimelineHeaderSelector,
   projectMenuTriggerSelector,
   projectCloseMenuSelector,
   projectWorkspacesToggleSelector,
@@ -199,6 +200,33 @@ export async function cleanupTestProject(directory: string) {
   await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined)
 }
 
+export function slugFromUrl(url: string) {
+  return /\/([^/]+)\/session(?:[/?#]|$)/.exec(url)?.[1] ?? ""
+}
+
+export async function waitSlug(page: Page, skip: string[] = []) {
+  let prev = ""
+  let next = ""
+  await expect
+    .poll(
+      () => {
+        const slug = slugFromUrl(page.url())
+        if (!slug) return ""
+        if (skip.includes(slug)) return ""
+        if (slug !== prev) {
+          prev = slug
+          next = ""
+          return ""
+        }
+        next = slug
+        return slug
+      },
+      { timeout: 45_000 },
+    )
+    .not.toBe("")
+  return next
+}
+
 export function sessionIDFromUrl(url: string) {
   const match = /\/session\/([^/?#]+)/.exec(url)
   return match?.[1]
@@ -216,7 +244,9 @@ export async function openSessionMoreMenu(page: Page, sessionID: string) {
 
   const scroller = page.locator(".scroll-view__viewport").first()
   await expect(scroller).toBeVisible()
-  await expect(scroller.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 30_000 })
+  const header = page.locator(sessionTimelineHeaderSelector).first()
+  await expect(header).toBeVisible({ timeout: 30_000 })
+  await expect(header.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 30_000 })
 
   const menu = page
     .locator(dropdownMenuContentSelector)
@@ -232,7 +262,7 @@ export async function openSessionMoreMenu(page: Page, sessionID: string) {
 
   if (opened) return menu
 
-  const menuTrigger = scroller.getByRole("button", { name: /more options/i }).first()
+  const menuTrigger = header.getByRole("button", { name: /more options/i }).first()
   await expect(menuTrigger).toBeVisible()
   await menuTrigger.click()
 
