@@ -226,14 +226,14 @@ export const BashTool = Tool.define("bash", async () => {
 
         if (earlyExit) {
           // Process exited before the capture window — return full output
+          const code = proc.exitCode
+          const truncated = output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output
           return {
             title: params.description,
-            metadata: {
-              output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
-              exit: proc.exitCode,
-              description: params.description,
-            },
-            output: output + `\n\nProcess exited with code ${proc.exitCode} before background capture completed.`,
+            metadata: { output: truncated, exit: code, description: params.description },
+            output: output + (code === 0
+              ? "\n\n[background] Process completed successfully before background capture finished."
+              : `\n\n[background] Process exited with code ${code}. Check the output above for errors.`),
           }
         }
 
@@ -243,14 +243,18 @@ export const BashTool = Tool.define("bash", async () => {
         proc.unref()
 
         const pid = proc.pid
+        const truncated = output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output
         return {
           title: params.description,
-          metadata: {
-            output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
-            exit: null,
-            description: params.description,
-          },
-          output: output + `\n\nProcess started in background with PID ${pid}.\nUse \`kill ${pid}\` to stop it.`,
+          metadata: { output: truncated, exit: null, description: params.description },
+          output: [
+            output,
+            "",
+            `[background] ✓ Process is running in the background (PID: ${pid}).`,
+            "This is expected — the server/process started successfully and is still running.",
+            "You can now proceed with other tasks (e.g., test the server with curl).",
+            `To stop it later, run: kill ${pid}`,
+          ].join("\n"),
         }
       }
 
