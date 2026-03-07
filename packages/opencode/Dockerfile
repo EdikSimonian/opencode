@@ -4,7 +4,8 @@ FROM alpine AS base
 # On ephemeral containers, the cache is not useful
 ARG BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=${BUN_RUNTIME_TRANSPILER_CACHE_PATH}
-RUN apk add libgcc libstdc++ ripgrep iptables
+RUN apk add libgcc libstdc++ ripgrep iptables ncurses-terminfo-base
+ENV TERM=xterm-256color
 
 FROM base AS build-amd64
 COPY dist/opencode-linux-x64-baseline-musl/bin/opencode /usr/local/bin/opencode
