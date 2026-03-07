@@ -63,6 +63,12 @@ export const BashTool = Tool.define("bash", async () => {
     parameters: z.object({
       command: z.string().describe("The command to execute"),
       timeout: z.number().describe("Optional timeout in milliseconds").optional(),
+      background: z
+        .boolean()
+        .describe(
+          "Run the command in the background. Use for long-running processes like web servers, watchers, etc. Returns immediately with the PID after capturing initial output for 2 seconds. The process continues running and can be stopped with `kill <pid>`.",
+        )
+        .optional(),
       workdir: z
         .string()
         .describe(
@@ -203,6 +209,50 @@ export const BashTool = Tool.define("bash", async () => {
 
       proc.stdout?.on("data", append)
       proc.stderr?.on("data", append)
+
+      // Background mode: capture initial output then return immediately
+      if (params.background) {
+        const BACKGROUND_CAPTURE_MS = 2000
+        let earlyExit = false
+
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(() => resolve(), BACKGROUND_CAPTURE_MS)
+          proc.once("exit", () => {
+            earlyExit = true
+            clearTimeout(timer)
+            resolve()
+          })
+        })
+
+        if (earlyExit) {
+          // Process exited before the capture window — return full output
+          return {
+            title: params.description,
+            metadata: {
+              output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
+              exit: proc.exitCode,
+              description: params.description,
+            },
+            output: output + `\n\nProcess exited with code ${proc.exitCode} before background capture completed.`,
+          }
+        }
+
+        // Detach stdout/stderr listeners so the process doesn't hold the tool
+        proc.stdout?.removeListener("data", append)
+        proc.stderr?.removeListener("data", append)
+        proc.unref()
+
+        const pid = proc.pid
+        return {
+          title: params.description,
+          metadata: {
+            output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
+            exit: null,
+            description: params.description,
+          },
+          output: output + `\n\nProcess started in background with PID ${pid}.\nUse \`kill ${pid}\` to stop it.`,
+        }
+      }
 
       let timedOut = false
       let aborted = false
