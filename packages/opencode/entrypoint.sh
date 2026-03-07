@@ -14,24 +14,9 @@ setup_firewall() {
     return 0
   }
 
-  # ── IPv4 ────────────────────────────────────────────────────────────────────
-  iptables -F OUTPUT
-  iptables -P OUTPUT DROP
-
-  iptables -A OUTPUT -o lo -j ACCEPT
-  iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-  iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
-  iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-  # ── IPv6 (block everything except loopback + DNS + established) ─────────────
-  ip6tables -F OUTPUT 2>/dev/null || true
-  ip6tables -P OUTPUT DROP 2>/dev/null || true
-  ip6tables -A OUTPUT -o lo -j ACCEPT 2>/dev/null || true
-  ip6tables -A OUTPUT -p udp --dport 53 -j ACCEPT 2>/dev/null || true
-  ip6tables -A OUTPUT -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
-  ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
-
-  # ── Allow package managers (apt, npm, pip) and model registry ────────────────
+  # ── Resolve all hostnames BEFORE applying DROP policy ─────────────────────
+  # getent hosts can hang if DNS is blocked, so do all resolution first.
+  _RESOLVED_PKG=""
   for pkg_host in \
     deb.debian.org security.debian.org \
     registry.npmjs.org \
@@ -39,16 +24,12 @@ setup_firewall() {
     models.dev; do
     pkg_ips=$(getent hosts "$pkg_host" 2>/dev/null | awk '{print $1}')
     for ip in $pkg_ips; do
-      if echo "$ip" | grep -q ':'; then
-        ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
-      else
-        iptables -A OUTPUT -d "$ip" -j ACCEPT || true
-      fi
+      _RESOLVED_PKG="$_RESOLVED_PKG $ip"
     done
   done
 
-  # ── Allow cloud provider APIs when API keys are set ─────────────────────────
-  # Map: ENV_VAR -> API hostname
+  # Resolve cloud provider API hosts
+  _RESOLVED_CLOUD=""
   [ -n "$DEEPINFRA_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.deepinfra.com"
   [ -n "$ANTHROPIC_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.anthropic.com"
   [ -n "$OPENAI_API_KEY" ] && _PROVIDER_HOSTS="${_PROVIDER_HOSTS:+$_PROVIDER_HOSTS }api.openai.com"
@@ -65,15 +46,12 @@ setup_firewall() {
     api_ips=$(getent hosts "$api_host" 2>/dev/null | awk '{print $1}')
     for ip in $api_ips; do
       echo "opencode: allowing outbound to $api_host ($ip)" >&2
-      if echo "$ip" | grep -q ':'; then
-        ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
-      else
-        iptables -A OUTPUT -d "$ip" -j ACCEPT || true
-      fi
+      _RESOLVED_CLOUD="$_RESOLVED_CLOUD $ip"
     done
   done
 
-  # ── Allow configured provider hosts (IPv4 + IPv6) ───────────────────────────
+  # Resolve configured local provider hosts
+  _RESOLVED_LOCAL=""
   for env_var in OLLAMA_HOST LMSTUDIO_HOST OPENWEBUI_HOST; do
     url=$(eval "echo \"\$$env_var\"")
     [ -z "$url" ] && continue
@@ -88,12 +66,54 @@ setup_firewall() {
 
     for ip in $ips; do
       echo "opencode: allowing outbound to $env_var host $host ($ip)" >&2
-      if echo "$ip" | grep -q ':'; then
-        ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
-      else
-        iptables -A OUTPUT -d "$ip" -j ACCEPT || true
-      fi
+      _RESOLVED_LOCAL="$_RESOLVED_LOCAL $ip"
     done
+  done
+
+  # ── Now apply the firewall rules with all IPs pre-resolved ────────────────
+
+  # IPv4
+  iptables -F OUTPUT
+  iptables -P OUTPUT DROP
+
+  iptables -A OUTPUT -o lo -j ACCEPT
+  iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+  iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+  iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+  # IPv6
+  ip6tables -F OUTPUT 2>/dev/null || true
+  ip6tables -P OUTPUT DROP 2>/dev/null || true
+  ip6tables -A OUTPUT -o lo -j ACCEPT 2>/dev/null || true
+  ip6tables -A OUTPUT -p udp --dport 53 -j ACCEPT 2>/dev/null || true
+  ip6tables -A OUTPUT -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
+  ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+
+  # Add pre-resolved package host IPs
+  for ip in $_RESOLVED_PKG; do
+    if echo "$ip" | grep -q ':'; then
+      ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
+    else
+      iptables -A OUTPUT -d "$ip" -j ACCEPT || true
+    fi
+  done
+
+  # Add pre-resolved cloud provider IPs
+  for ip in $_RESOLVED_CLOUD; do
+    if echo "$ip" | grep -q ':'; then
+      ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
+    else
+      iptables -A OUTPUT -d "$ip" -j ACCEPT || true
+    fi
+  done
+
+  # Add pre-resolved local provider IPs
+  for ip in $_RESOLVED_LOCAL; do
+    if echo "$ip" | grep -q ':'; then
+      ip6tables -A OUTPUT -d "$ip" -j ACCEPT 2>/dev/null || true
+    else
+      iptables -A OUTPUT -d "$ip" -j ACCEPT || true
+    fi
   done
 
   # REJECT remaining traffic so blocked connections fail instantly instead of
