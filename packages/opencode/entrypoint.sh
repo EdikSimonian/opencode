@@ -31,11 +31,12 @@ setup_firewall() {
   ip6tables -A OUTPUT -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
   ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 
-  # ── Allow package managers (apt, npm, pip) ──────────────────────────────────
+  # ── Allow package managers (apt, npm, pip) and model registry ────────────────
   for pkg_host in \
     deb.debian.org security.debian.org \
     registry.npmjs.org \
-    pypi.org files.pythonhosted.org; do
+    pypi.org files.pythonhosted.org \
+    models.dev; do
     pkg_ips=$(getent hosts "$pkg_host" 2>/dev/null | awk '{print $1}')
     for ip in $pkg_ips; do
       if echo "$ip" | grep -q ':'; then
