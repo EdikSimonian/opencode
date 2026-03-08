@@ -111,6 +111,48 @@ setup_firewall() {
   echo "opencode: network isolation active — all other outbound traffic blocked" >&2
 }
 
+# ── Install custom CA certificate if provided ─────────────────────────────────
+setup_custom_ca() {
+  local cert_path=""
+
+  if [ -n "$CUSTOM_CA_CERT_PATH" ]; then
+    # User mounted a cert file
+    if [ ! -f "$CUSTOM_CA_CERT_PATH" ]; then
+      echo "opencode: WARNING: CUSTOM_CA_CERT_PATH='$CUSTOM_CA_CERT_PATH' not found — skipping" >&2
+      return 0
+    fi
+    cert_path="$CUSTOM_CA_CERT_PATH"
+  elif [ -n "$CUSTOM_CA_CERT" ]; then
+    # User passed cert contents via env var
+    cert_path="/tmp/custom-ca.pem"
+    printf '%s\n' "$CUSTOM_CA_CERT" > "$cert_path"
+  else
+    return 0
+  fi
+
+  echo "opencode: installing custom CA certificate..." >&2
+
+  # System-wide trust (Debian/Ubuntu)
+  cp "$cert_path" /usr/local/share/ca-certificates/custom-ca.crt
+  update-ca-certificates 2>&1 | tail -1 >&2
+
+  # The system bundle now includes our cert
+  local system_bundle="/etc/ssl/certs/ca-certificates.crt"
+
+  # Node.js / Bun
+  export NODE_EXTRA_CA_CERTS="$system_bundle"
+
+  # Python (requests, httpx, urllib3, etc.)
+  export SSL_CERT_FILE="$system_bundle"
+  export REQUESTS_CA_BUNDLE="$system_bundle"
+
+  # Go / generic
+  export SSL_CERT_DIR="/etc/ssl/certs"
+
+  echo "opencode: custom CA trusted system-wide, Node.js, Python, and Go" >&2
+}
+
+setup_custom_ca
 setup_firewall
 
 # Auto-allow all opencode tool permissions (bash, edit, read, write, etc.)

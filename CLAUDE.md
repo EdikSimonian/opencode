@@ -35,6 +35,8 @@ This already happened once and spiked usage from 0% to 100% in a single prompt.
 
 ## Tagging and releasing
 
+**Latest release: `v0.1.41`**
+
 **Use `v0.x.x` versioning only.** Do not use v1.x or higher until explicitly told otherwise.
 
 Tags on `v0.x.x` that already exist locally (fetched from upstream sst/opencode) must be
@@ -62,6 +64,8 @@ git tag -d vX.Y.Z 2>/dev/null; git tag vX.Y.Z && git push origin vX.Y.Z
 | `OPENWEBUI_API_KEY` | Open WebUI API key |
 | `OPENCODE_DISABLE_ISOLATION` | Skip iptables firewall setup |
 | `OPENCODE_PERMISSION` | Override tool permissions |
+| `CUSTOM_CA_CERT_PATH` | Path to a mounted PEM CA certificate file |
+| `CUSTOM_CA_CERT` | PEM CA certificate contents (inline via env var) |
 
 ## Automated workflows
 

@@ -9,7 +9,7 @@ ENV HOME=/root
 
 USER 0
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      iptables ripgrep \
+      iptables ripgrep ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && echo "root:x:0:0:root:/root:/bin/sh" >> /etc/passwd \
     && mkdir -p /root

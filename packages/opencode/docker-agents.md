@@ -22,6 +22,9 @@ Use the bash tool's `background: true` parameter to start long-running processes
 {{NETWORK_STATUS}}
 {{PROVIDER_STATUS}}
 
+## Custom CA Certificates
+If the container was started with `CUSTOM_CA_CERT_PATH` (path to a mounted PEM file) or `CUSTOM_CA_CERT` (inline PEM contents), a custom root CA certificate has been installed and is trusted system-wide, by Node.js, Python, and Go.
+
 ## Pre-installed tools
 - `ripgrep` (rg) — fast file search
 - `git` is NOT pre-installed (install with `apt-get install -y git` if needed)
