@@ -35,7 +35,7 @@ This already happened once and spiked usage from 0% to 100% in a single prompt.
 
 ## Tagging and releasing
 
-**Latest release: `v0.1.41`**
+**Latest release: `v0.1.42`**
 
 **Use `v0.x.x` versioning only.** Do not use v1.x or higher until explicitly told otherwise.
 
