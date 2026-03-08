@@ -140,6 +140,33 @@ To disable isolation while keeping `--cap-add NET_ADMIN` (e.g. for debugging):
 | `OPENWEBUI_API_KEY` | Open WebUI API key (generate in Settings → Account → API Keys) |
 | `OPENCODE_DISABLE_ISOLATION` | Set to any value to skip network isolation entirely |
 | `OPENCODE_PERMISSION` | Override tool permissions (default: `{"*":"allow"}`) |
+| `CUSTOM_CA_CERT_PATH` | Path to a PEM CA certificate file mounted into the container |
+| `CUSTOM_CA_CERT` | PEM CA certificate contents passed inline as an env var |
+
+#### Custom CA certificates
+
+For environments with TLS-intercepting proxies or private CA infrastructure, you can inject a custom root CA certificate. It will be trusted system-wide, by Node.js, Python, and Go.
+
+Mount a certificate file:
+
+```bash
+docker run -it --rm \
+  -v ./my-corp-ca.pem:/certs/ca.pem:ro \
+  -e CUSTOM_CA_CERT_PATH=/certs/ca.pem \
+  -v /path/to/your/project:/workspace \
+  -w /workspace \
+  ghcr.io/ediksimonian/opencode:latest
+```
+
+Or pass the certificate inline:
+
+```bash
+docker run -it --rm \
+  -e CUSTOM_CA_CERT="$(cat my-corp-ca.pem)" \
+  -v /path/to/your/project:/workspace \
+  -w /workspace \
+  ghcr.io/ediksimonian/opencode:latest
+```
 
 #### Persisting config
 
