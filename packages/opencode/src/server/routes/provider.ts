@@ -3,6 +3,7 @@ import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import { Provider } from "../../provider/provider"
 import { ProviderAuth } from "../../provider/auth"
+import { ProviderID } from "../../provider/schema"
 import { mapValues } from "remeda"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
@@ -85,7 +86,7 @@ export const ProviderRoutes = lazy(() =>
       validator(
         "param",
         z.object({
-          providerID: z.string().meta({ description: "Provider ID" }),
+          providerID: ProviderID.zod.meta({ description: "Provider ID" }),
         }),
       ),
       validator(
@@ -125,7 +126,7 @@ export const ProviderRoutes = lazy(() =>
       validator(
         "param",
         z.object({
-          providerID: z.string().meta({ description: "Provider ID" }),
+          providerID: ProviderID.zod.meta({ description: "Provider ID" }),
         }),
       ),
       validator(
