@@ -685,8 +685,8 @@ export namespace Provider {
         for (const m of ollamaModels) {
           const modelID = m.name
           input.models[modelID] = {
-            id: modelID,
-            providerID: "ollama",
+            id: ModelID.make(modelID),
+            providerID: ProviderID.make("ollama"),
             name: modelID,
             api: {
               id: modelID,
@@ -746,8 +746,8 @@ export namespace Provider {
         for (const m of lmModels) {
           const modelID = m.id
           input.models[modelID] = {
-            id: modelID,
-            providerID: "lmstudio",
+            id: ModelID.make(modelID),
+            providerID: ProviderID.make("lmstudio"),
             name: modelID,
             api: {
               id: modelID,
@@ -808,8 +808,8 @@ export namespace Provider {
         for (const m of models) {
           const modelID = m.id
           input.models[modelID] = {
-            id: modelID,
-            providerID: "openwebui",
+            id: ModelID.make(modelID),
+            providerID: ProviderID.make("openwebui"),
             name: m.name ?? modelID,
             api: {
               id: modelID,
@@ -865,8 +865,8 @@ export namespace Provider {
           const modelID = m.id
           if (input.models[modelID]) continue // already in models.dev, keep curated data
           input.models[modelID] = {
-            id: modelID,
-            providerID: "deepinfra",
+            id: ModelID.make(modelID),
+            providerID: ProviderID.make("deepinfra"),
             name: modelID.split("/").pop() ?? modelID,
             api: {
               id: modelID,
@@ -896,8 +896,8 @@ export namespace Provider {
         // Ensure GLM-5 is always available (models.dev may not list it under deepinfra)
         if (!input.models["zai-org/GLM-5"]) {
           input.models["zai-org/GLM-5"] = {
-            id: "zai-org/GLM-5",
-            providerID: "deepinfra",
+            id: ModelID.make("zai-org/GLM-5"),
+            providerID: ProviderID.make("deepinfra"),
             name: "GLM-5",
             api: {
               id: "zai-org/GLM-5",
@@ -1104,7 +1104,7 @@ export namespace Provider {
     // Add local Ollama provider if not present in models.dev
     if (!database["ollama"]) {
       database["ollama"] = {
-        id: "ollama",
+        id: ProviderID.make("ollama"),
         name: "Ollama",
         source: "custom",
         env: [],
@@ -1116,7 +1116,7 @@ export namespace Provider {
     // Add OpenWebUI provider
     if (!database["openwebui"]) {
       database["openwebui"] = {
-        id: "openwebui",
+        id: ProviderID.make("openwebui"),
         name: "Open WebUI",
         source: "custom",
         env: [],
@@ -1708,7 +1708,7 @@ export namespace Provider {
       const localProvider = providers[localID]
       if (localProvider && Object.keys(localProvider.models).length > 0) {
         const [model] = sort(Object.values(localProvider.models))
-        if (model) return { providerID: localID, modelID: model.id }
+        if (model) return { providerID: ProviderID.make(localID), modelID: model.id }
       }
     }
 
