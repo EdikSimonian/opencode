@@ -16,11 +16,11 @@ permissions:
 
 jobs:
   nix-eval:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Nix
         uses: nixbuild/nix-quick-install-action@v34
