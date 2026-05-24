@@ -16,12 +16,13 @@ import type { LanguageModelV3, LanguageModelV3Content, LanguageModelV3StreamPart
  *     (also tolerant of the unwrapped <function=...> form and arbitrary whitespace)
  *   - Hermes JSON:      <tool_call>{"name":"NAME","arguments":{...}}</tool_call>
  *
- * Design: it sniffs only the *start* of each assistant text block. If a tool
- * marker appears there, it buffers the rest and emits structured tool calls at
- * finish. Otherwise it replays the original upstream stream parts byte-for-byte
- * (no re-chunking), so ordinary text answers render exactly as the provider
- * sent them. It is a complete no-op when the backend already returns structured
- * tool calls.
+ * Streaming strategy: at the start of each text block we briefly hold deltas to
+ * decide text-vs-tool. If it starts as a tool call we suppress the markup and
+ * emit a structured tool call at finish. If it starts as text we forward the
+ * provider's *original* parts incrementally (re-chunking or batching deltas
+ * prevents opencode from finalizing the assistant text) and keep scanning, so a
+ * tool call after some preamble is still recovered. No-op when the backend
+ * already returns structured tool calls.
  */
 
 interface ParsedCall {
@@ -142,52 +143,48 @@ export const toolCallRecoveryMiddleware: LanguageModelMiddleware = {
     const { stream, ...rest } = await doStream()
     const DBG = !!process.env["OPENCODE_TCR_DEBUG"]
     type Part = LanguageModelV3StreamPart
+    type TextDelta = Extract<Part, { type: "text-delta" }>
     type Controller = TransformStreamDefaultController<Part>
 
     let sawUpstreamToolCall = false
     let finished = false
-    // phase: "sniff" (buffering start of a text block to decide), "passthrough"
-    // (confirmed plain text — forward originals), "capture" (buffering a tool call).
-    let phase: "sniff" | "passthrough" | "capture" = "sniff"
-    let buffered: Part[] = [] // original parts withheld during sniff
+    // "sniff": holding the start of a text block to decide text-vs-tool.
+    // "text": confirmed text, forwarding originals incrementally (still scanning).
+    // "capture": buffering tool-call markup to emit at finish.
+    let phase: "sniff" | "text" | "capture" = "sniff"
+    let savedStart: Extract<Part, { type: "text-start" }> | undefined
+    let startForwarded = false
+    let held: TextDelta[] = [] // original deltas held during sniff
     let sniffText = ""
+    let seen = "" // text forwarded in the "text" phase (scanned for markers)
     let capture = ""
 
-    const flushBuffered = (c: Controller) => {
-      for (const p of buffered) c.enqueue(p)
-      buffered = []
+    const fwdStart = (c: Controller) => {
+      if (startForwarded || !savedStart) return
+      c.enqueue(savedStart)
+      startForwarded = true
+      if (DBG) console.error("[TCR] >text-start")
+    }
+    const flushHeld = (c: Controller) => {
+      if (held.length) fwdStart(c)
+      for (const p of held) {
+        c.enqueue(p)
+        if (DBG) console.error("[TCR] >text-delta(orig)", JSON.stringify(p.delta))
+      }
+      held = []
     }
     const emitTools = (c: Controller, src: string): number => {
       const calls = parseToolCalls(src)
       for (const cc of calls) {
-        if (DBG) console.error("[TCR] recovered tool-call", cc.name, JSON.stringify(cc.args))
+        if (DBG) console.error("[TCR] >tool-call", cc.name, JSON.stringify(cc.args))
         c.enqueue({ type: "tool-call", toolCallId: newToolCallId(), toolName: cc.name, input: JSON.stringify(cc.args) })
       }
       return calls.length
     }
-    // Resolve the sniff decision once we have a delta; may transition phase.
-    const decideSniff = (c: Controller) => {
-      const idx = earliestMarker(sniffText)
-      if (idx >= 0) {
-        // Tool call begins. Drop the withheld text parts (they belong to the
-        // tool markup, not user-visible text) and start capturing.
-        buffered = []
-        phase = "capture"
-        capture = sniffText
-        sniffText = ""
-        return
-      }
-      if (!couldStartMarker(sniffText)) {
-        // Plain text — replay the originals untouched and stop intercepting.
-        flushBuffered(c)
-        phase = "passthrough"
-        sniffText = ""
-      }
-    }
 
     const transform = new TransformStream<Part, Part>({
       transform(part, controller) {
-        if (DBG && part.type !== "text-delta") console.error("[TCR in]", part.type)
+        if (DBG && part.type !== "text-delta") console.error("[TCR <]", part.type)
         if (sawUpstreamToolCall) {
           controller.enqueue(part)
           return
@@ -197,52 +194,77 @@ export const toolCallRecoveryMiddleware: LanguageModelMiddleware = {
           case "tool-input-start":
           case "tool-input-delta":
           case "tool-input-end":
-            // Backend already produced structured tool calls: bail out entirely.
             sawUpstreamToolCall = true
-            flushBuffered(controller)
+            flushHeld(controller)
             controller.enqueue(part)
             return
           case "text-start":
-            if (phase === "passthrough") controller.enqueue(part)
-            else if (phase === "sniff") buffered.push(part)
-            // capture: drop (no visible text block)
+            savedStart = part
+            startForwarded = false
+            phase = "sniff"
+            held = []
+            sniffText = ""
+            seen = ""
+            capture = ""
             return
           case "text-delta": {
-            if (phase === "passthrough") {
-              controller.enqueue(part)
-              return
-            }
+            const d = part.delta
             if (phase === "capture") {
-              capture += part.delta
+              capture += d
               return
             }
-            buffered.push(part)
-            sniffText += part.delta
-            decideSniff(controller)
+            if (phase === "text") {
+              // Forward originals incrementally; keep scanning for a later marker.
+              fwdStart(controller)
+              controller.enqueue(part)
+              seen += d
+              const idx = earliestMarker(seen)
+              if (idx >= 0) {
+                phase = "capture"
+                capture = seen.slice(idx)
+              }
+              return
+            }
+            // sniff
+            held.push(part as TextDelta)
+            sniffText += d
+            const idx = earliestMarker(sniffText)
+            if (idx >= 0) {
+              // starts as a tool call — suppress the held markup
+              held = []
+              phase = "capture"
+              capture = sniffText.slice(idx)
+            } else if (!couldStartMarker(sniffText)) {
+              // confirmed text — release held originals and stream the rest
+              flushHeld(controller)
+              seen = sniffText
+              phase = "text"
+            }
             return
           }
           case "text-end":
-            if (phase === "passthrough") controller.enqueue(part)
-            else if (phase === "sniff") {
-              // Block ended while still sniffing (short message): decide now.
-              if (earliestMarker(sniffText) >= 0) {
-                buffered = []
+            if (phase === "sniff") {
+              const idx = earliestMarker(sniffText)
+              if (idx >= 0) {
+                held = []
                 phase = "capture"
-                capture = sniffText
-                sniffText = ""
+                capture = sniffText.slice(idx)
               } else {
-                buffered.push(part)
-                flushBuffered(controller)
-                phase = "passthrough"
+                flushHeld(controller)
+                phase = "text"
               }
             }
-            // capture: drop
+            if (phase === "capture") return // suppressed; tool calls emitted at finish
+            if (startForwarded) controller.enqueue(part)
             return
           case "finish": {
             finished = true
-            if (phase === "capture" && capture) {
+            if (phase === "sniff") flushHeld(controller) // only-whitespace / tiny text
+            if (phase === "capture" && hasToolMarker(capture)) {
               const n = emitTools(controller, capture)
+              capture = ""
               if (n > 0) {
+                if (startForwarded) controller.enqueue({ type: "text-end", id: savedStart?.id ?? "recovery-text" })
                 controller.enqueue({
                   type: "finish",
                   usage: part.usage,
@@ -251,27 +273,22 @@ export const toolCallRecoveryMiddleware: LanguageModelMiddleware = {
                 })
                 return
               }
-              // Couldn't parse — fall back to surfacing whatever we withheld.
-              flushBuffered(controller)
-            } else {
-              flushBuffered(controller)
             }
             controller.enqueue(part)
             return
           }
           default:
-            // stream-start, response-metadata, reasoning-*, raw, error, etc.
-            // Always forward immediately so `buffered` only ever holds text parts
-            // (which are the only thing we may need to drop when a tool call wins).
             controller.enqueue(part)
         }
       },
       flush(controller) {
         if (finished || sawUpstreamToolCall) return
-        if (phase === "capture" && capture) {
-          if (emitTools(controller, capture) > 0) return
+        if (phase === "sniff") flushHeld(controller)
+        if (phase === "capture" && hasToolMarker(capture)) {
+          if (emitTools(controller, capture) > 0 && startForwarded) {
+            controller.enqueue({ type: "text-end", id: savedStart?.id ?? "recovery-text" })
+          }
         }
-        flushBuffered(controller)
       },
     })
 
