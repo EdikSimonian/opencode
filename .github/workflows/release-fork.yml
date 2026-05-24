@@ -1,0 +1,78 @@
+name: release-fork
+run-name: "fork release ${{ inputs.version || '(from package.json)' }}"
+
+# Minimal release pipeline for the EdikSimonian/opencode fork.
+#
+# Unlike the upstream `publish.yml` (which needs org secrets: OPENCODE_APP_SECRET,
+# OPENCODE_API_KEY, Apple/Azure signing, npm token, ghcr), this builds the CLI
+# binaries with no secrets and uploads them to a GitHub release using the
+# built-in GITHUB_TOKEN. That's all `opencode upgrade` / the install script need
+# (they fetch the latest release's opencode-<os>-<arch>.{zip,tar.gz} assets).
+#
+# Manual trigger only — run it from the Actions tab when you want to cut a release
+# reflecting the current `dev` branch.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 1.15.10. Leave blank to use packages/opencode/package.json."
+        required: false
+        type: string
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.repository == 'EdikSimonian/opencode'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Resolve version
+        id: ver
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION=$(node -p "require('./packages/opencode/package.json').version")
+          fi
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION"
+
+      - name: Create draft release (if missing)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.ver.outputs.version }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — assets will be overwritten (--clobber)."
+          else
+            gh release create "$TAG" \
+              --draft \
+              --title "$TAG" \
+              --target "${{ github.sha }}" \
+              --generate-notes
+          fi
+
+      - name: Build CLI binaries and upload assets
+        run: ./packages/opencode/script/build.ts
+        env:
+          OPENCODE_VERSION: ${{ steps.ver.outputs.version }}
+          OPENCODE_RELEASE: "true"
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "v${{ steps.ver.outputs.version }}" --draft=false --latest

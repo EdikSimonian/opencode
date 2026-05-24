@@ -22,6 +22,7 @@ env:
 
 jobs:
   unit:
+    if: github.repository == 'anomalyco/opencode'
     name: unit (${{ matrix.settings.name }})
     strategy:
       fail-fast: false
@@ -94,6 +95,7 @@ jobs:
           path: packages/*/.artifacts/unit/junit.xml
 
   e2e:
+    if: github.repository == 'anomalyco/opencode'
     name: e2e (${{ matrix.settings.name }})
     strategy:
       fail-fast: false
