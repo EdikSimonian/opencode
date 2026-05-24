@@ -116,8 +116,20 @@ function newToolCallId(): string {
   return "call_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16)
 }
 
+// Backstop against a local model rambling to the full context window: cap the
+// output length. Most real responses are well under this; degenerate loops are
+// what blow past it. Override per call with OPENCODE_TCR_MAX_TOKENS.
+const MAX_OUTPUT_TOKENS = Number(process.env["OPENCODE_TCR_MAX_TOKENS"]) || 8192
+
 export const toolCallRecoveryMiddleware: LanguageModelMiddleware = {
   specificationVersion: "v3",
+
+  transformParams: async ({ params }) => {
+    if (params.maxOutputTokens == null || params.maxOutputTokens > MAX_OUTPUT_TOKENS) {
+      return { ...params, maxOutputTokens: MAX_OUTPUT_TOKENS }
+    }
+    return params
+  },
 
   wrapGenerate: async ({ doGenerate }) => {
     const result = await doGenerate()
@@ -156,7 +168,11 @@ export const toolCallRecoveryMiddleware: LanguageModelMiddleware = {
     let startForwarded = false
     let held: TextDelta[] = [] // original deltas held during sniff
     let sniffText = ""
-    let seen = "" // text forwarded in the "text" phase (scanned for markers)
+    // Bounded recent-text window scanned for markers in the "text" phase.
+    // (Scanning the whole accumulated text per delta would be O(n^2) and pegs
+    // the CPU on long/rambling responses.) A marker is at most ~11 chars.
+    let scanTail = ""
+    const SCAN_WINDOW = 32
     let capture = ""
 
     const fwdStart = (c: Controller) => {
@@ -204,7 +220,7 @@ export const toolCallRecoveryMiddleware: LanguageModelMiddleware = {
             phase = "sniff"
             held = []
             sniffText = ""
-            seen = ""
+            scanTail = ""
             capture = ""
             return
           case "text-delta": {
@@ -214,14 +230,19 @@ export const toolCallRecoveryMiddleware: LanguageModelMiddleware = {
               return
             }
             if (phase === "text") {
-              // Forward originals incrementally; keep scanning for a later marker.
+              // Forward originals incrementally; keep scanning a bounded window
+              // for a later marker.
               fwdStart(controller)
               controller.enqueue(part)
-              seen += d
-              const idx = earliestMarker(seen)
+              // Scan the previous tail + the full new delta (so a marker inside a
+              // large delta is found), then keep only a small overlap tail.
+              const window = scanTail + d
+              const idx = earliestMarker(window)
               if (idx >= 0) {
                 phase = "capture"
-                capture = seen.slice(idx)
+                capture = window.slice(idx)
+              } else {
+                scanTail = window.slice(-SCAN_WINDOW)
               }
               return
             }
@@ -237,7 +258,7 @@ export const toolCallRecoveryMiddleware: LanguageModelMiddleware = {
             } else if (!couldStartMarker(sniffText)) {
               // confirmed text — release held originals and stream the rest
               flushHeld(controller)
-              seen = sniffText
+              scanTail = sniffText.slice(-SCAN_WINDOW)
               phase = "text"
             }
             return
