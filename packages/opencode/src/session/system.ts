@@ -11,6 +11,7 @@ import PROMPT_KIMI from "./prompt/kimi.txt"
 
 import PROMPT_CODEX from "./prompt/codex.txt"
 import PROMPT_TRINITY from "./prompt/trinity.txt"
+import PROMPT_QWEN from "./prompt/qwen.txt"
 import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
@@ -29,6 +30,9 @@ export function provider(model: Provider.Model) {
   if (model.api.id.includes("claude")) return [PROMPT_ANTHROPIC]
   if (model.api.id.toLowerCase().includes("trinity")) return [PROMPT_TRINITY]
   if (model.api.id.toLowerCase().includes("kimi")) return [PROMPT_KIMI]
+  // Local Qwen models: keep the full instructions but prepend a compact
+  // "/no_think" + act-immediately directive to stop reasoning spirals.
+  if (model.api.id.toLowerCase().includes("qwen")) return [PROMPT_QWEN, PROMPT_DEFAULT]
   return [PROMPT_DEFAULT]
 }
 

@@ -156,6 +156,29 @@ function normalizeMessages(
       .filter((msg): msg is ModelMessage => msg !== undefined && msg.content !== "")
   }
 
+  // Local Qwen: append the "/no_think" soft switch to the latest user message.
+  // Qwen3.x honors it from the most recent user turn; it reliably stops the
+  // model from emitting chain-of-thought into content, which otherwise spirals
+  // and exhausts the token budget on a slow local backend.
+  if (model.api.id.toLowerCase().includes("qwen")) {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const msg = msgs[i]
+      if (msg.role !== "user") continue
+      if (typeof msg.content === "string") {
+        if (!msg.content.includes("/no_think")) msg.content = msg.content + " /no_think"
+      } else if (Array.isArray(msg.content)) {
+        const texts = msg.content.filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
+        const last = texts[texts.length - 1]
+        if (last) {
+          if (!last.text.includes("/no_think")) last.text = last.text + " /no_think"
+        } else {
+          msg.content.push({ type: "text", text: "/no_think" })
+        }
+      }
+      break
+    }
+  }
+
   // Bedrock specific transforms
   if (model.api.npm === "@ai-sdk/amazon-bedrock") {
     msgs = msgs

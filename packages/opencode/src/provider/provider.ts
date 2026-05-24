@@ -9,6 +9,7 @@ import { Hash } from "@opencode-ai/core/util/hash"
 import { Plugin } from "../plugin"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import { type LanguageModelV3 } from "@ai-sdk/provider"
+import { withToolCallRecovery } from "./tool-call-recovery"
 import * as ModelsDev from "@opencode-ai/core/models-dev"
 import { Auth } from "../auth"
 import { Env } from "../env"
@@ -1725,12 +1726,22 @@ export const layer = Layer.effect(
       return yield* EffectPromise.refineRejection(
         async () => {
           const sdk = await resolveSDK(model, s, envs)
-          const language = s.modelLoaders[model.providerID]
+          const base = s.modelLoaders[model.providerID]
             ? await s.modelLoaders[model.providerID](sdk, model.api.id, {
                 ...provider.options,
                 ...model.options,
               })
             : sdk.languageModel(model.api.id)
+          // Local / OpenAI-compatible backends (llama.cpp, vLLM, LM Studio behind a
+          // gateway) frequently leak tool-call markup into the assistant's message
+          // content instead of emitting structured tool_calls, so opencode never runs
+          // the tool. Recover those into real tool calls. No-op when the backend
+          // already returns structured tool calls.
+          const language =
+            model.api.npm.includes("@ai-sdk/openai-compatible") &&
+            !process.env["OPENCODE_DISABLE_TOOLCALL_RECOVERY"]
+              ? withToolCallRecovery(base)
+              : base
           s.models.set(key, language)
           return language
         },
