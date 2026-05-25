@@ -167,16 +167,22 @@ printf 'opencode first-time setup\n'
 printf 'LiteLLM server base URL (e.g. https://ai.simonian.online): '
 IFS= read -r srv </dev/tty || exit 1
 [ -n "$srv" ] || { echo "no server entered" >&2; exit 1; }
+case "$srv" in http://* | https://*) ;; *) srv="https://$srv" ;; esac
 case "$srv" in */v1 | */v1/) srv="${srv%/}" ;; *) srv="${srv%/}/v1" ;; esac
 printf 'API key (input hidden): '
+trap 'stty echo </dev/tty 2>/dev/null; exit 1' INT TERM
 stty -echo </dev/tty 2>/dev/null || true
 IFS= read -r key </dev/tty || { stty echo </dev/tty 2>/dev/null || true; exit 1; }
 stty echo </dev/tty 2>/dev/null || true
+trap - INT TERM
 printf '\n'
 [ -n "$key" ] || { echo "no key entered" >&2; exit 1; }
 printf 'validating %s/models ...\n' "$srv"
-models_json=$(curl -fsS "$srv/models" -H "Authorization: Bearer $key") \
-  || { echo "could not reach $srv/models, or the key was rejected" >&2; exit 1; }
+# Pass the key via a 600 temp curl config so it never appears in argv/process list.
+hdr=$(mktemp) || { echo "mktemp failed" >&2; exit 1; }
+chmod 600 "$hdr"; printf 'header = "Authorization: Bearer %s"\n' "$key" > "$hdr"
+models_json=$(curl -fsSL --config "$hdr" "$srv/models"); _cc=$?; rm -f "$hdr"
+[ "$_cc" = 0 ] || { echo "could not reach $srv/models, or the key was rejected" >&2; exit 1; }
 ids=$(printf '%s' "$models_json" | jq -r '.data[].id' 2>/dev/null) \
   || { echo "unexpected response from $srv/models" >&2; exit 1; }
 [ -n "$ids" ] || { echo "no models returned by $srv/models" >&2; exit 1; }
@@ -192,7 +198,7 @@ jq -n --arg base "$srv" --arg model "litellm/$default" --argjson models "$models
     provider:{litellm:{name:"LiteLLM", npm:"@ai-sdk/openai-compatible",
                        options:{baseURL:$base}, models:$models}}}' \
   > "$CREDS/opencode.json"
-( umask 177; jq -n --arg key "$key" '{litellm:{type:"api", key:$key}}' > "$CREDS/auth.json" )
+( umask 177; key="$key" jq -n '{litellm:{type:"api", key:$ENV.key}}' > "$CREDS/auth.json" )
 chmod 600 "$CREDS/auth.json"
 key=""
 printf 'Saved %s/{opencode.json,auth.json} (chmod 600). Default model: %s. Discovered %s model(s).\n' \
@@ -210,8 +216,9 @@ BIN=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 [ -f "$CREDS/auth.json" ] || { "$BIN/opencode-setup" || exit 1; }
 
+started=0
 if ! podman info >/dev/null 2>&1; then
-  podman machine start >/dev/null 2>&1 || true
+  podman machine start >/dev/null 2>&1 && started=1
   podman info >/dev/null 2>&1 || { echo "opencode: podman is not ready (try: podman machine start)" >&2; exit 1; }
 fi
 
@@ -234,7 +241,7 @@ for v in ANTHROPIC_API_KEY OPENAI_API_KEY OPENROUTER_API_KEY GEMINI_API_KEY \
 done
 
 # shellcheck disable=SC2086
-exec podman run --rm -i $tty \
+podman run --rm -i $tty \
   -v "$root:/work$z" -w "/work${rel:+/$rel}" \
   -e HOME=/oc -e XDG_CONFIG_HOME=/oc/.config -e XDG_DATA_HOME=/oc/.local/share \
   -e XDG_STATE_HOME=/oc/.local/state -e XDG_CACHE_HOME=/oc/.cache \
@@ -244,6 +251,17 @@ exec podman run --rm -i $tty \
   -v "$CREDS/opencode.json:/oc/.config/opencode/opencode.json$zro" \
   -v "$CREDS/auth.json:/oc/.local/share/opencode/auth.json$zro" \
   $gitmount $envflags "$IMAGE" "$@"
+rc=$?
+
+# Free resources: only if WE started the machine this run (macOS/Windows) and no
+# other Podman containers remain. Won't touch a machine you were already using.
+# OPENCODE_KEEP_MACHINE=1 disables this.
+if [ -z "${OPENCODE_KEEP_MACHINE:-}" ] && [ "$started" = 1 ] \
+  && [ -z "$(podman ps -q 2>/dev/null)" ]; then
+  echo "opencode: stopping the Podman machine we started (no other containers running)." >&2
+  podman machine stop >/dev/null 2>&1 || true
+fi
+exit $rc
 RUN
 
   # opencode-update / opencode-reauth helpers

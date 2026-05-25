@@ -73,6 +73,7 @@ function opencode-setup {
   `$creds = `$OPENCODE_CREDS
   `$srv = Read-Host 'LiteLLM server base URL (e.g. https://ai.simonian.online)'
   if (-not `$srv) { Write-Error 'no server entered'; return }
+  if (`$srv -notmatch '^https?://') { `$srv = "https://`$srv" }
   `$srv = `$srv.TrimEnd('/'); if (`$srv -notmatch '/v1`$') { `$srv = "`$srv/v1" }
   `$sec = Read-Host 'API key (hidden)' -AsSecureString
   `$key = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR(`$sec))
@@ -102,12 +103,13 @@ function opencode-setup {
 function opencode {
   `$creds = `$OPENCODE_CREDS
   if (-not (Test-Path (Join-Path `$creds 'auth.json'))) { opencode-setup; if (-not (Test-Path (Join-Path `$creds 'auth.json'))) { return } }
-  podman info *> `$null; if (`$LASTEXITCODE -ne 0) { podman machine start *> `$null }
+  `$started = `$false
+  podman info *> `$null; if (`$LASTEXITCODE -ne 0) { podman machine start *> `$null; `$started = `$true }
   `$root = (git rev-parse --show-toplevel 2>`$null); if (-not `$root) { `$root = (Get-Location).Path }
   `$run = @('run','--rm','-i')
   if (-not [Console]::IsInputRedirected) { `$run += '-t' }
   `$run += @(
-    '--mount', "type=bind,source=`$root,target=/work",
+    '--mount', "type=bind,source=`$root,target=/work", '-w', '/work',
     '-e','HOME=/oc','-e','XDG_CONFIG_HOME=/oc/.config','-e','XDG_DATA_HOME=/oc/.local/share',
     '-e','XDG_STATE_HOME=/oc/.local/state','-e','XDG_CACHE_HOME=/oc/.cache',
     '--mount', "type=bind,source=`$HOME\.local\share\opencode,target=/oc/.local/share/opencode",
@@ -116,12 +118,19 @@ function opencode {
     '--mount', "type=bind,source=`$creds\opencode.json,target=/oc/.config/opencode/opencode.json,readonly",
     '--mount', "type=bind,source=`$creds\auth.json,target=/oc/.local/share/opencode/auth.json,readonly"
   )
-  foreach (`$v in 'ANTHROPIC_API_KEY','OPENAI_API_KEY','OPENROUTER_API_KEY','GEMINI_API_KEY','GITHUB_TOKEN','GITLAB_TOKEN','OPENCODE_AUTH_CONTENT','OPENCODE_CONFIG_CONTENT') {
+  foreach (`$v in 'ANTHROPIC_API_KEY','OPENAI_API_KEY','OPENROUTER_API_KEY','GEMINI_API_KEY','GOOGLE_GENERATIVE_AI_API_KEY','AZURE_OPENAI_API_KEY','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_REGION','CLOUDFLARE_API_TOKEN','GITHUB_TOKEN','GITLAB_TOKEN','OPENCODE_AUTH_CONTENT','OPENCODE_CONFIG_CONTENT') {
     if (Test-Path "env:`$v") { `$run += @('-e', `$v) }
   }
   if (Test-Path (Join-Path `$HOME '.gitconfig')) { `$run += @('--mount', "type=bind,source=`$HOME\.gitconfig,target=/oc/.gitconfig,readonly") }
   `$run += `$OPENCODE_IMAGE
   podman @run @args
+  `$rc = `$LASTEXITCODE
+  # Free resources: only if WE started the machine this run and no other containers remain.
+  if (`$started -and -not `$env:OPENCODE_KEEP_MACHINE -and -not (podman ps -q 2>`$null)) {
+    Write-Host 'opencode: stopping the Podman machine we started (no other containers running).'
+    podman machine stop *> `$null
+  }
+  `$global:LASTEXITCODE = `$rc
 }
 
 function opencode-update { podman pull `$OPENCODE_IMAGE }
@@ -132,7 +141,10 @@ $MarkerEnd
 if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Force -Path $PROFILE | Out-Null }
 $existing = Get-Content -Raw -Path $PROFILE -ErrorAction SilentlyContinue
 if ($existing -and $existing.Contains($MarkerStart)) {
-  Info "Profile already contains the opencode block ($PROFILE) -- leaving as-is."
+  $pattern = '(?s)' + [regex]::Escape($MarkerStart) + '.*?' + [regex]::Escape($MarkerEnd) + '\r?\n?'
+  $cleaned = [regex]::Replace($existing, $pattern, '')
+  Set-Content -Path $PROFILE -Value ($cleaned.TrimEnd() + "`n`n" + $block) -Encoding utf8
+  Info "Updated the opencode block in $PROFILE"
 } else {
   Add-Content -Path $PROFILE -Value "`n$block"
   Info "Added opencode functions to $PROFILE"
