@@ -1,14 +1,5 @@
 # Containerized `opencode` (Podman)
 
-Run `opencode` on a new machine **inside a container** instead of installing the
-native binary — using **Podman**, a free, open-source, daemonless Docker
-replacement. It **does not touch any existing Docker install**: the wrapper calls
-`podman` directly and Podman keeps its own separate image store (and, on
-macOS/Windows, its own VM). The runtime is used **only** for opencode.
-
-On first launch you're asked for a **server (LiteLLM base URL)** and an **API
-key**. They're stored on the host and passed into the container **read-only**.
-
 ## Install
 
 **macOS / Linux:**
@@ -25,7 +16,21 @@ irm https://raw.githubusercontent.com/EdikSimonian/opencode/dev/scripts/opencode
 pwsh -File scripts\opencode-container\install.ps1
 ```
 
-The installer:
+Then open a new terminal (or `source` your shell rc / `. $PROFILE`) and run
+`opencode` in a project — the first run prompts for your server + API key.
+
+## What this is
+
+Run `opencode` **inside a container** instead of installing the native binary —
+using **Podman**, a free, open-source, daemonless Docker replacement. It **does
+not touch any existing Docker install**: the wrapper calls `podman` directly and
+Podman keeps its own separate image store (and, on macOS/Windows, its own VM).
+The runtime is used **only** for opencode.
+
+On first launch you're asked for a **server (LiteLLM base URL)** and an **API
+key**. They're stored on the host and passed into the container **read-only**.
+
+## What the installer does
 1. Installs Podman (with confirmation). **No Homebrew or winget required** — it
    uses them if present, otherwise downloads the **official signed Podman
    installer** (macOS `.pkg`, verified by macOS; Windows setup `.exe`, Authenticode
@@ -36,8 +41,6 @@ The installer:
 3. Pulls `docker.io/edisimon/opencode:latest`.
 4. Installs the `opencode` command (a small wrapper on your `PATH`, so it works in
    bash/zsh/fish/PowerShell) and offers to run first-time setup.
-
-Open a new terminal afterwards (or `source` your shell rc / `. $PROFILE`).
 
 ## First-run setup
 
@@ -69,6 +72,12 @@ argument (so it won't land in shell history or the process list).
 The project is mounted at the **git repo root** (so running from a subdirectory
 still sees `.git`, `AGENTS.md`, `.opencode/`), with your subdir as the working
 directory. Sessions/state persist on the host under `~/.local/share/opencode`.
+
+**Resource cleanup (macOS/Windows):** the Podman machine is a VM. If `opencode`
+had to **start** it and, on exit, **no other Podman containers are running**, it
+stops the machine again to free RAM/CPU. It will *not* stop a machine that was
+already running when you launched (so it never disrupts other Podman work). Set
+`OPENCODE_KEEP_MACHINE=1` to leave the machine running (faster repeated launches).
 
 ## How credentials reach the container
 
