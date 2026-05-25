@@ -1,0 +1,129 @@
+name: nightly-upstream-merge
+run-name: "nightly upstream merge"
+
+# Nightly: merge sst/opencode@dev into this fork. If the merge is clean it just
+# opens a PR; if it conflicts, Claude (via CLAUDE_CODE_OAUTH_TOKEN — your Claude
+# Max quota, no API bill) resolves the conflicts, preserving our fork's
+# customizations, then the PR is opened for review. Nothing lands on `dev`
+# automatically — you review + merge the PR.
+#
+# Requires repo secret CLAUDE_CODE_OAUTH_TOKEN (output of `claude setup-token`).
+
+on:
+  schedule:
+    - cron: "0 8 * * *" # 08:00 UTC nightly
+  workflow_dispatch: {}
+
+concurrency: nightly-upstream-merge
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  UPSTREAM_URL: https://github.com/sst/opencode.git
+  UPSTREAM_BRANCH: dev
+  BASE_BRANCH: dev
+
+jobs:
+  merge:
+    if: github.repository == 'EdikSimonian/opencode'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "opencode-sync[bot]"
+          git config user.email "opencode-sync@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream "$UPSTREAM_URL" 2>/dev/null || git remote set-url upstream "$UPSTREAM_URL"
+          git fetch --no-tags upstream "$UPSTREAM_BRANCH"
+
+      - name: Determine if behind upstream
+        id: state
+        run: |
+          behind=$(git rev-list --count "HEAD..upstream/$UPSTREAM_BRANCH")
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          echo "branch=sync/upstream-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "Upstream is $behind commit(s) ahead of our dev."
+
+      - name: Create sync branch and attempt merge
+        if: steps.state.outputs.behind != '0'
+        id: merge
+        run: |
+          git checkout -B "${{ steps.state.outputs.branch }}"
+          if git merge --no-ff --no-edit "upstream/$UPSTREAM_BRANCH"; then
+            echo "conflicts=false" >> "$GITHUB_OUTPUT"
+            echo "Clean merge."
+          else
+            echo "conflicts=true" >> "$GITHUB_OUTPUT"
+            echo "Conflicts in:"; git diff --name-only --diff-filter=U
+          fi
+
+      - name: Resolve conflicts with Claude
+        if: steps.state.outputs.behind != '0' && steps.merge.outputs.conflicts == 'true'
+        uses: anthropics/claude-code-action@787c5a0ce96a9a6cfb050ea0c8f4c05f2447c251 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--allowedTools 'Bash,Read,Edit,Write,Grep,Glob' --max-turns 60"
+          prompt: |
+            You are resolving a git merge conflict in EdikSimonian/opencode, a fork of
+            sst/opencode. We just ran `git merge upstream/dev` and it produced conflicts.
+            Resolve them so the merge is clean, correct, and the build still works.
+
+            Fork customizations that MUST survive when they conflict with upstream:
+            - `opencode upgrade` / install must keep sourcing releases from
+              `EdikSimonian/opencode` (packages/opencode/src/installation/index.ts and
+              the root `install` script). Never revert these back to `sst/opencode`.
+            - Our local Qwen tool-calling support (recovery middleware, `/no_think`
+              handling, models snapshot) under packages/opencode/src/provider/*. Keep it.
+            - Workflows: we intentionally keep ONLY .github/workflows/release-fork.yml and
+              .github/workflows/nightly-upstream-merge.yml. If upstream adds or edits other
+              workflow files and they conflict, delete them rather than restoring them.
+
+            For everything else, prefer upstream's changes unless they clearly break the
+            fork. When unsure, favor a working build over preserving fork quirks.
+
+            Procedure:
+            1. `git diff --name-only --diff-filter=U` to list conflicted files.
+            2. Edit each to a correct resolution with NO leftover conflict markers
+               (`<<<<<<<`, `=======`, `>>>>>>>`), then `git add` it.
+            3. When all conflicts are staged, run `git commit --no-edit` to finish the merge.
+            4. `git diff --check` and confirm no markers remain.
+            Do NOT push. Do NOT touch anything unrelated to the conflicts.
+
+      - name: Verify merge completed and tree is clean
+        if: steps.state.outputs.behind != '0'
+        run: |
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "::error::Unresolved conflicts remain"; git diff --name-only --diff-filter=U; exit 1
+          fi
+          if git grep -lE '^(<<<<<<< |>>>>>>> )' -- . >/dev/null 2>&1; then
+            echo "::error::Conflict markers still present in the tree:"; git grep -nE '^(<<<<<<< |>>>>>>> )' -- .; exit 1
+          fi
+          if ! git merge-base --is-ancestor "upstream/$UPSTREAM_BRANCH" HEAD; then
+            echo "::error::Merge not completed — upstream/$UPSTREAM_BRANCH is not an ancestor of HEAD"; exit 1
+          fi
+          echo "Merge verified clean."
+
+      - name: Push branch and open PR
+        if: steps.state.outputs.behind != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git push -f origin "${{ steps.state.outputs.branch }}"
+          if gh pr view "${{ steps.state.outputs.branch }}" --json state -q .state 2>/dev/null | grep -q OPEN; then
+            echo "PR already open for ${{ steps.state.outputs.branch }}."
+          else
+            gh pr create \
+              --base "$BASE_BRANCH" \
+              --head "${{ steps.state.outputs.branch }}" \
+              --title "Nightly upstream merge ($(date -u +%Y-%m-%d))" \
+              --body "Automated merge of \`sst/opencode@$UPSTREAM_BRANCH\` — ${{ steps.state.outputs.behind }} commit(s) ahead. Conflicts (if any) were resolved by Claude with fork customizations preserved. **Review the diff before merging.**"
+          fi
