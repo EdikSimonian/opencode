@@ -1,0 +1,65 @@
+name: docker
+run-name: "docker build & push"
+
+# Runs after changes land on dev (e.g. a merged nightly upstream-merge PR).
+# Compiles the CLI binaries with the same script as release-fork, then builds the
+# multi-arch opencode image (packages/opencode/Dockerfile copies the linux musl
+# binaries into Alpine) and pushes it to Docker Hub as <DOCKERHUB_USERNAME>/opencode.
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch: {}
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.repository == 'EdikSimonian/opencode'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Resolve version
+        id: ver
+        run: echo "version=$(node -p "require('./packages/opencode/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Build CLI binaries (incl. linux x64/arm64 musl for the image)
+        run: bun ./packages/opencode/script/build.ts
+        env:
+          OPENCODE_VERSION: ${{ steps.ver.outputs.version }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: packages/opencode
+          file: packages/opencode/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/opencode:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/opencode:${{ steps.ver.outputs.version }}

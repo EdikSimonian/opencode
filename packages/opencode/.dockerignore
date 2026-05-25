@@ -1,0 +1,7 @@
+# The image only needs the two linux musl binaries the Dockerfile COPYs.
+# Keep the build context tiny (build.ts emits ~14 platform targets into dist/).
+*
+!dist
+dist/*
+!dist/opencode-linux-x64-baseline-musl
+!dist/opencode-linux-arm64-musl
