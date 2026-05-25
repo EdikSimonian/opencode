@@ -116,6 +116,7 @@ jobs:
         if: steps.state.outputs.behind != '0'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }} # force PR onto the fork, not the sst/opencode parent
         run: |
           git push -f origin "${{ steps.state.outputs.branch }}"
           if gh pr view "${{ steps.state.outputs.branch }}" --json state -q .state 2>/dev/null | grep -q OPEN; then
