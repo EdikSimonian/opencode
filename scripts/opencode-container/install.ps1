@@ -82,7 +82,15 @@ function opencode-setup {
   catch { Write-Error "could not reach `$srv/models, or the key was rejected"; return }
   `$ids = @(`$resp.data.id)
   if (`$ids.Count -eq 0) { Write-Error 'no models returned'; return }
-  `$default = `$ids[0]
+  if (`$ids.Count -le 1) { `$default = `$ids[0] }
+  else {
+    Write-Host 'Models available:'
+    for (`$i = 0; `$i -lt `$ids.Count; `$i++) { Write-Host ('  {0,2}) {1}' -f (`$i + 1), `$ids[`$i]) }
+    `$sel = Read-Host "Choose the default model [1-`$(`$ids.Count)] (Enter = 1)"
+    if (-not (`$sel -as [int]) -or [int]`$sel -lt 1 -or [int]`$sel -gt `$ids.Count) { `$sel = 1 }
+    `$default = `$ids[[int]`$sel - 1]
+  }
+  Write-Host "Default model: `$default"
   `$models = @{}
   foreach (`$id in `$ids) {
     `$models[`$id] = @{ id = `$id; tool_call = `$true; attachment = `$true; temperature = `$true;

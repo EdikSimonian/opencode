@@ -186,7 +186,19 @@ models_json=$(curl -fsSL --config "$hdr" "$srv/models"); _cc=$?; rm -f "$hdr"
 ids=$(printf '%s' "$models_json" | jq -r '.data[].id' 2>/dev/null) \
   || { echo "unexpected response from $srv/models" >&2; exit 1; }
 [ -n "$ids" ] || { echo "no models returned by $srv/models" >&2; exit 1; }
-default=$(printf '%s\n' "$ids" | head -1)
+count=$(printf '%s\n' "$ids" | grep -c .)
+if [ "$count" -le 1 ]; then
+  default=$(printf '%s\n' "$ids" | head -1)
+else
+  printf 'Models available on %s:\n' "$srv"
+  printf '%s\n' "$ids" | awk '{printf "  %2d) %s\n", NR, $0}'
+  printf 'Choose the default model [1-%s] (Enter = 1): ' "$count"
+  IFS= read -r sel </dev/tty || sel=1
+  case "$sel" in "" | *[!0-9]*) sel=1 ;; esac
+  { [ "$sel" -ge 1 ] && [ "$sel" -le "$count" ]; } 2>/dev/null || sel=1
+  default=$(printf '%s\n' "$ids" | sed -n "${sel}p")
+fi
+printf 'Default model: %s\n' "$default"
 models=$(printf '%s' "$models_json" | jq '[.data[].id]
   | map({key: ., value: {id: ., tool_call: true, attachment: true, temperature: true,
                          reasoning: false, limit: {context: 128000, output: 8192},
