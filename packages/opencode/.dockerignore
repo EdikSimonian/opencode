@@ -1,7 +1,8 @@
-# The image only needs the two linux musl binaries the Dockerfile COPYs.
-# Keep the build context tiny (build.ts emits ~14 platform targets into dist/).
+# The image only needs the two linux GLIBC binaries the Dockerfile COPYs
+# (the glibc build's TUI renders; the musl one hangs). Keep the build context
+# tiny (build.ts emits ~14 platform targets into dist/).
 *
 !dist
 dist/*
-!dist/opencode-linux-x64-baseline-musl
-!dist/opencode-linux-arm64-musl
+!dist/opencode-linux-x64-baseline
+!dist/opencode-linux-arm64
