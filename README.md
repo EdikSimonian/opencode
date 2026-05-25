@@ -43,6 +43,26 @@
 
 ---
 
+### Containerized install (Podman)
+
+Run opencode **inside a container** — no native binary, points at your own
+LiteLLM server, and **does not touch any existing Docker** install. Uses
+[Podman](https://podman.io) (free, open-source); no Homebrew/winget required.
+
+```sh
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/EdikSimonian/opencode/dev/scripts/opencode-container/install.sh | sh
+```
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/EdikSimonian/opencode/dev/scripts/opencode-container/install.ps1 | iex
+```
+
+First launch prompts for a **server (LiteLLM base URL)** and an **API key**
+(stored on the host, passed in read-only). Details: [`scripts/opencode-container`](scripts/opencode-container/README.md).
+
+---
+
 ### Installation
 
 ```bash
