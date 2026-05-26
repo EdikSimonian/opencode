@@ -47,8 +47,8 @@ if (-not (Get-Command podman -ErrorAction SilentlyContinue)) {
 
 # Podman on Windows runs containers in a WSL2 machine.
 if (-not (podman machine inspect 2>$null)) {
-  Info 'Initializing Podman machine (WSL2 backend)...'
-  podman machine init
+  Info 'Initializing Podman machine (4 GiB RAM, WSL2 backend)...'
+  podman machine init --memory 4096
 }
 podman machine start 2>$null | Out-Null
 podman info *> $null

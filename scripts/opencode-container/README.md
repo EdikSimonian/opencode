@@ -114,6 +114,19 @@ If set in your shell, these are forwarded into the container:
 - **Windows:** Podman uses a WSL2 backend; `install.ps1` is authored but should be
   validated on a real Windows host before classroom use.
 
+## Troubleshooting
+
+**`opencode` (or any `podman` command) hangs / the TUI won't load.** The Podman
+machine (VM) is likely wedged — once `podman info`/`podman pull` hang, everything
+does. Reset it:
+```sh
+podman machine stop; podman machine start
+podman info >/dev/null && echo OK   # retry once if it says "connection reset" (SSH not ready yet)
+```
+The installer provisions the machine with 4 GiB to avoid the OOM-wedge the 2 GiB
+default hits under load. If you still see wedges, give it more: `podman machine
+stop && podman machine set --memory 6144 && podman machine start`.
+
 ## Uninstall
 
 ```sh

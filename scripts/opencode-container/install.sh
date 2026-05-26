@@ -124,8 +124,9 @@ ensure_runtime_ready() {
     # macOS runs containers in a Podman machine (Linux VM). The default machine
     # only shares $HOME, so broaden mounts to cover arbitrary project paths.
     if ! podman machine inspect >/dev/null 2>&1; then
-      info "Initializing Podman machine (shares /Users and /Volumes)..."
-      podman machine init -v /Users:/Users -v /Volumes:/Volumes
+      info "Initializing Podman machine (4 GiB RAM; shares /Users and /Volumes)..."
+      # 4 GiB (vs the 2 GiB default) — 2 GiB OOM-wedges the VM under load.
+      podman machine init --memory 4096 -v /Users:/Users -v /Volumes:/Volumes
     fi
     podman machine start >/dev/null 2>&1 || true
   else
