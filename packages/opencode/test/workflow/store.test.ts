@@ -66,6 +66,19 @@ t.instance("cancel invokes the registered canceller", () =>
   }),
 )
 
+t.instance("canceller registered before run.started is not lost (race fix)", () =>
+  Effect.gen(function* () {
+    const store = yield* WorkflowStore.Service
+    const flag = yield* Ref.make(false)
+    // setCancel runs before the run record exists (interpreter emits run.started
+    // asynchronously); the canceller must survive that ordering.
+    yield* store.setCancel("wf_race", Ref.set(flag, true))
+    yield* store.sink("wf_race")({ type: "run.started", runID: "wf_race", at: 1 })
+    yield* store.cancel("wf_race")
+    expect(yield* Ref.get(flag)).toBe(true)
+  }),
+)
+
 t.instance("cancel is a no-op for finished or unknown runs", () =>
   Effect.gen(function* () {
     const store = yield* WorkflowStore.Service

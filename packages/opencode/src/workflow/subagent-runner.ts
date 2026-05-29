@@ -76,15 +76,22 @@ export function makeSubagentRunner(deps: {
         ],
       })
 
-      const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
-      if (msg.info.role !== "assistant")
-        return yield* new SubagentRunError({ nodeID: step.nodeID, message: "Parent message is not an assistant message" })
+      // Once the child session exists, any interruption (fail-fast sibling, run
+      // cancellation, parent abort) must tear it down — guard the whole region,
+      // not just the prompt, so we don't leak a session if interrupted during
+      // message lookup or prompt-part resolution.
+      return yield* Effect.gen(function* () {
+        const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
+        if (msg.info.role !== "assistant")
+          return yield* new SubagentRunError({
+            nodeID: step.nodeID,
+            message: "Parent message is not an assistant message",
+          })
 
-      const model = next.model ?? { modelID: msg.info.modelID, providerID: msg.info.providerID }
-      const parts = yield* ops.resolvePromptParts(step.prompt)
+        const model = next.model ?? { modelID: msg.info.modelID, providerID: msg.info.providerID }
+        const parts = yield* ops.resolvePromptParts(step.prompt)
 
-      const result = yield* ops
-        .prompt({
+        const result = yield* ops.prompt({
           messageID: MessageID.ascending(),
           sessionID: child.id,
           model: { modelID: model.modelID, providerID: model.providerID },
@@ -97,26 +104,26 @@ export function makeSubagentRunner(deps: {
           parts,
           ...(step.schema ? { format: { type: "json_schema" as const, schema: step.schema } } : {}),
         })
-        .pipe(Effect.onInterrupt(() => ops.cancel(child.id).pipe(Effect.ignore)))
 
-      const info = result.info
-      const assistantError = info.role === "assistant" ? info.error : undefined
-      if (assistantError)
-        return yield* new SubagentRunError({ nodeID: step.nodeID, message: errorText(assistantError) })
+        const info = result.info
+        const assistantError = info.role === "assistant" ? info.error : undefined
+        if (assistantError)
+          return yield* new SubagentRunError({ nodeID: step.nodeID, message: errorText(assistantError) })
 
-      const structured = info.role === "assistant" ? info.structured : undefined
-      if (step.schema && structured === undefined)
-        return yield* new SubagentRunError({
-          nodeID: step.nodeID,
-          message: "Subagent did not produce structured output for the requested schema",
-        })
+        const structured = info.role === "assistant" ? info.structured : undefined
+        if (step.schema && structured === undefined)
+          return yield* new SubagentRunError({
+            nodeID: step.nodeID,
+            message: "Subagent did not produce structured output for the requested schema",
+          })
 
-      const text = result.parts.findLast((part) => part.type === "text")?.text ?? ""
-      return {
-        text,
-        json: structured,
-        sessionID: child.id,
-      } satisfies RunStepOutput
+        const text = result.parts.findLast((part) => part.type === "text")?.text ?? ""
+        return {
+          text,
+          json: structured,
+          sessionID: child.id,
+        } satisfies RunStepOutput
+      }).pipe(Effect.onInterrupt(() => ops.cancel(child.id).pipe(Effect.ignore)))
     }).pipe(
       // Normalize infra failures (session lookup/create, agent lookup) into the
       // step's typed error so the interpreter can attribute them to this node.

@@ -40,12 +40,13 @@ export interface RunInfo {
 interface Record_ {
   info: Omit<RunInfo, "steps">
   steps: Map<string, StepInfo>
-  /** Effect that cancels the run (interrupt the fiber, cancel subagent sessions). */
-  cancel?: Effect.Effect<void>
 }
 
 type State = {
   runs: SynchronizedRef.SynchronizedRef<Map<string, Record_>>
+  // Cancellers are tracked separately from run records so registration can't be
+  // lost in a race with the `run.started` event that creates the record.
+  cancellers: SynchronizedRef.SynchronizedRef<Map<string, Effect.Effect<void>>>
 }
 
 export interface Interface {
@@ -76,19 +77,12 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const state = yield* InstanceState.make<State>(
       Effect.fn("WorkflowStore.state")(function* () {
-        return { runs: yield* SynchronizedRef.make(new Map<string, Record_>()) }
+        return {
+          runs: yield* SynchronizedRef.make(new Map<string, Record_>()),
+          cancellers: yield* SynchronizedRef.make(new Map<string, Effect.Effect<void>>()),
+        }
       }),
     )
-
-    const update = (runID: string, f: (record: Record_) => Record_) =>
-      Effect.gen(function* () {
-        const s = yield* InstanceState.get(state)
-        yield* SynchronizedRef.update(s.runs, (runs) => {
-          const record = runs.get(runID)
-          if (!record) return runs
-          return new Map(runs).set(runID, f(record))
-        })
-      })
 
     const apply = (runID: string, init: { title?: string; metadata?: Record<string, unknown> } | undefined) =>
       Effect.fn("WorkflowStore.apply")(function* (event: Event) {
@@ -106,8 +100,7 @@ export const layer = Layer.effect(
                   started_at: event.at,
                   metadata: init?.metadata,
                 },
-                steps: new Map(),
-                cancel: record?.cancel,
+                steps: record?.steps ?? new Map(),
               })
               return next
             }
@@ -157,7 +150,10 @@ export const layer = Layer.effect(
     const sink: Interface["sink"] = (runID, init) => apply(runID, init)
 
     const setCancel: Interface["setCancel"] = (runID, cancel) =>
-      update(runID, (record) => ({ ...record, cancel }))
+      Effect.gen(function* () {
+        const s = yield* InstanceState.get(state)
+        yield* SynchronizedRef.update(s.cancellers, (map) => new Map(map).set(runID, cancel))
+      })
 
     const list: Interface["list"] = Effect.fn("WorkflowStore.list")(function* () {
       const s = yield* InstanceState.get(state)
@@ -177,7 +173,8 @@ export const layer = Layer.effect(
       const record = (yield* SynchronizedRef.get(s.runs)).get(runID)
       if (!record) return undefined
       if (record.info.status !== "running") return snapshot(record)
-      if (record.cancel) yield* record.cancel.pipe(Effect.ignore)
+      const canceller = (yield* SynchronizedRef.get(s.cancellers)).get(runID)
+      if (canceller) yield* canceller.pipe(Effect.ignore)
       const after = (yield* SynchronizedRef.get(s.runs)).get(runID)
       return after ? snapshot(after) : undefined
     })

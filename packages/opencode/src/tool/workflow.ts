@@ -154,19 +154,32 @@ export const WorkflowTool = Tool.define(
         return { title, metadata: { ...metadata, jobId: info.id }, output: backgroundOutput(runID) }
       }
 
-      // Foreground: fork so the parent's abort signal can interrupt the whole
-      // run (which cascades cancellation to every in-flight subagent session).
-      const fiber = yield* program.pipe(Effect.forkIn(scope, { startImmediately: true }))
-      yield* store.setCancel(runID, Fiber.interrupt(fiber).pipe(Effect.asVoid))
-      const bridge = yield* EffectBridge.make()
-      const onAbort = () => {
-        bridge.fork(Fiber.interrupt(fiber))
-      }
-      if (ctx.abort.aborted) onAbort()
-      else ctx.abort.addEventListener("abort", onAbort)
-
-      const exit = yield* Fiber.await(fiber).pipe(
-        Effect.ensuring(Effect.sync(() => ctx.abort.removeEventListener("abort", onAbort))),
+      // Foreground: run in an EXECUTE-scoped fiber (not the long-lived tool-init
+      // scope) so the parent's abort interrupts the whole run — cascading
+      // cancellation to every in-flight subagent session — and the fiber can
+      // never outlive an abandoned turn. Mirrors TaskTool's foreground teardown.
+      const exit = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const executeScope = yield* Scope.Scope
+          const fiber = yield* program.pipe(Effect.forkIn(executeScope, { startImmediately: true }))
+          const interrupt = Fiber.interrupt(fiber).pipe(Effect.asVoid)
+          yield* store.setCancel(runID, interrupt)
+          const bridge = yield* EffectBridge.make()
+          const onAbort = () => {
+            bridge.fork(interrupt)
+          }
+          return yield* Effect.acquireUseRelease(
+            Effect.sync(() => {
+              if (ctx.abort.aborted) onAbort()
+              else ctx.abort.addEventListener("abort", onAbort)
+            }),
+            () => Fiber.await(fiber),
+            (_, waiterExit) =>
+              Effect.gen(function* () {
+                if (Exit.hasInterrupts(waiterExit)) yield* interrupt
+              }).pipe(Effect.ensuring(Effect.sync(() => ctx.abort.removeEventListener("abort", onAbort)))),
+          )
+        }),
       )
 
       if (Exit.isSuccess(exit))

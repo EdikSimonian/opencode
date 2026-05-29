@@ -51,23 +51,40 @@ export function interpret(input: InterpretInput): Effect.Effect<StepResult[], In
     const concurrency = Math.max(1, input.concurrency ?? DEFAULT_CONCURRENCY)
     const sem = yield* Semaphore.make(concurrency)
 
-    const runAgent = (agent: AgentNode): Effect.Effect<StepResult[], InterpretError> =>
-      Effect.gen(function* () {
-        const stepID = Identifier.ascending("workflowstep")
-        const label = agent.label ?? agent.id
-        const startedAt = yield* Clock.currentTimeMillis
-        yield* emit({
-          type: "step.started",
-          runID,
-          stepID,
-          nodeID: agent.id,
-          label,
-          agentType: agent.agentType,
-          phase: agent.phase,
-          at: startedAt,
-        })
-        return yield* sem
-          .withPermits(1)(
+    // Emit the terminal event for a unit of work given how it exited. Shared by
+    // step- and run-level lifecycle so the rule is identical everywhere.
+    const emitTerminal = (exit: Exit.Exit<unknown, unknown>, onStatus: (status: "completed" | "error" | "cancelled", error?: string) => Effect.Effect<void>) =>
+      Exit.match(exit, {
+        onSuccess: () => onStatus("completed"),
+        onFailure: (cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? onStatus("cancelled")
+            : onStatus("error", errorText(Cause.squash(cause))),
+      })
+
+    const runAgent = (agent: AgentNode): Effect.Effect<StepResult[], InterpretError> => {
+      const stepID = Identifier.ascending("workflowstep")
+      const label = agent.label ?? agent.id
+      // acquireUseRelease pairs the started/finished events atomically: acquire
+      // runs uninterruptibly and release always runs, so a step can never be
+      // left "started" without a terminal event even if interrupted in between.
+      return Effect.acquireUseRelease(
+        Clock.currentTimeMillis.pipe(
+          Effect.flatMap((at) =>
+            emit({
+              type: "step.started",
+              runID,
+              stepID,
+              nodeID: agent.id,
+              label,
+              agentType: agent.agentType,
+              phase: agent.phase,
+              at,
+            }),
+          ),
+        ),
+        () =>
+          sem.withPermits(1)(
             runner.run({
               nodeID: agent.id,
               label,
@@ -75,47 +92,33 @@ export function interpret(input: InterpretInput): Effect.Effect<StepResult[], In
               prompt: agent.prompt,
               schema: agent.schema,
             }),
-          )
-          .pipe(
-            // Finalizer: guarantees exactly one terminal event regardless of
-            // success / failure / interruption (runs uninterruptibly).
-            Effect.onExit((exit) =>
-              Effect.gen(function* () {
-                const at = yield* Clock.currentTimeMillis
-                yield* Exit.match(exit, {
-                  onSuccess: () =>
-                    emit({ type: "step.finished", runID, stepID, status: "completed", at }),
-                  onFailure: (cause) =>
-                    Cause.hasInterruptsOnly(cause)
-                      ? emit({ type: "step.finished", runID, stepID, status: "cancelled", at })
-                      : emit({
-                          type: "step.finished",
-                          runID,
-                          stepID,
-                          status: "error",
-                          at,
-                          error: errorText(Cause.squash(cause)),
-                        }),
-                })
-              }),
+          ),
+        (_, exit) =>
+          Clock.currentTimeMillis.pipe(
+            Effect.flatMap((at) =>
+              emitTerminal(exit, (status, error) =>
+                emit({ type: "step.finished", runID, stepID, status, at, error }),
+              ),
             ),
-            Effect.map(
-              (out): StepResult[] => [
-                {
-                  stepID,
-                  nodeID: agent.id,
-                  label,
-                  agentType: agent.agentType,
-                  status: "completed",
-                  text: out.text,
-                  json: out.json,
-                  sessionID: out.sessionID,
-                },
-              ],
-            ),
-            Effect.mapError((err) => new InterpretError({ nodeID: agent.id, message: err.message })),
-          )
-      })
+          ),
+      ).pipe(
+        Effect.map(
+          (out): StepResult[] => [
+            {
+              stepID,
+              nodeID: agent.id,
+              label,
+              agentType: agent.agentType,
+              status: "completed",
+              text: out.text,
+              json: out.json,
+              sessionID: out.sessionID,
+            },
+          ],
+        ),
+        Effect.mapError((err) => new InterpretError({ nodeID: agent.id, message: err.message })),
+      )
+    }
 
     const go = (n: IR): Effect.Effect<StepResult[], InterpretError> => {
       switch (n.kind) {
@@ -141,27 +144,15 @@ export function interpret(input: InterpretInput): Effect.Effect<StepResult[], In
       }
     }
 
-    const startedAt = yield* Clock.currentTimeMillis
-    yield* emit({ type: "run.started", runID, at: startedAt })
-    return yield* go(node).pipe(
-      Effect.onExit((exit) =>
-        Effect.gen(function* () {
-          const at = yield* Clock.currentTimeMillis
-          yield* Exit.match(exit, {
-            onSuccess: () => emit({ type: "run.finished", runID, status: "completed", at }),
-            onFailure: (cause) =>
-              Cause.hasInterruptsOnly(cause)
-                ? emit({ type: "run.finished", runID, status: "cancelled", at })
-                : emit({
-                    type: "run.finished",
-                    runID,
-                    status: "error",
-                    at,
-                    error: errorText(Cause.squash(cause)),
-                  }),
-          })
-        }),
-      ),
+    return yield* Effect.acquireUseRelease(
+      Clock.currentTimeMillis.pipe(Effect.flatMap((at) => emit({ type: "run.started", runID, at }))),
+      () => go(node),
+      (_, exit) =>
+        Clock.currentTimeMillis.pipe(
+          Effect.flatMap((at) =>
+            emitTerminal(exit, (status, error) => emit({ type: "run.finished", runID, status, at, error })),
+          ),
+        ),
     )
   })
 }
