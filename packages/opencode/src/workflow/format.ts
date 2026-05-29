@@ -9,13 +9,19 @@ function escape(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 }
 
+// Attribute values are model-controlled (id/label/agentType come from the
+// workflow doc), so also escape quotes to keep the block well-formed.
+function escapeAttr(value: string): string {
+  return escape(value).replace(/"/g, "&quot;")
+}
+
 function renderStep(step: StepResult): string {
   const body =
     step.json !== undefined
       ? ["<json>", escape(JSON.stringify(step.json, null, 2)), "</json>"]
       : ["<result>", escape(step.text), "</result>"]
   return [
-    `<step id="${escape(step.nodeID)}" label="${escape(step.label)}" agent="${escape(step.agentType)}" state="${step.status}">`,
+    `<step id="${escapeAttr(step.nodeID)}" label="${escapeAttr(step.label)}" agent="${escapeAttr(step.agentType)}" state="${step.status}">`,
     ...body,
     "</step>",
   ].join("\n")

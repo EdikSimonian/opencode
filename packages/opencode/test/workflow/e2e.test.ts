@@ -60,6 +60,26 @@ describe("formatWorkflowOutput", () => {
     expect(out).toContain("<result>")
   })
 
+  test("escapes quotes in model-controlled attributes", () => {
+    const out = formatWorkflowOutput({
+      runID: "wf_q",
+      status: "completed",
+      results: [
+        {
+          stepID: "wfs_1",
+          nodeID: 'a"x',
+          label: 'lab"el',
+          agentType: "general",
+          status: "completed",
+          text: "ok",
+        },
+      ],
+    })
+    expect(out).toContain('id="a&quot;x"')
+    expect(out).toContain('label="lab&quot;el"')
+    expect(out).not.toContain('id="a"x"')
+  })
+
   test("renders json results when present", () => {
     const out = formatWorkflowOutput({
       runID: "wf_2",

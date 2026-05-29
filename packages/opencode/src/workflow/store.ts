@@ -145,6 +145,15 @@ export const layer = Layer.effect(
               return next
           }
         })
+        // Drop the canceller once a run reaches a terminal state so completed
+        // runs don't retain fiber/job closures for the life of the instance.
+        if (event.type === "run.finished")
+          yield* SynchronizedRef.update(s.cancellers, (map) => {
+            if (!map.has(runID)) return map
+            const next = new Map(map)
+            next.delete(runID)
+            return next
+          })
       })
 
     const sink: Interface["sink"] = (runID, init) => apply(runID, init)

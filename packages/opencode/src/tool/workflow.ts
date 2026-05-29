@@ -8,6 +8,7 @@ import { Identifier } from "@/id/id"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import type { TaskPromptOps } from "./task"
+import type { IR } from "@/workflow/ir"
 import { compile, Parameters as DocParameters, WORKFLOW_JSON_SCHEMA, CompileError } from "@/workflow/compile"
 import { interpret } from "@/workflow/interpreter"
 import { makeSubagentRunner } from "@/workflow/subagent-runner"
@@ -42,6 +43,18 @@ function modelSchema(allowBackground: boolean): JSONSchema7 {
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+function collectAgentTypes(node: IR): string[] {
+  switch (node.kind) {
+    case "agent":
+      return [node.agentType]
+    case "log":
+      return []
+    case "seq":
+    case "parallel":
+      return node.children.flatMap(collectAgentTypes)
+  }
 }
 
 function backgroundOutput(runID: string): string {
@@ -96,6 +109,19 @@ export const WorkflowTool = Tool.define(
 
       const ops = ctx.extra?.promptOps as TaskPromptOps | undefined
       if (!ops) return yield* Effect.fail(new Error("WorkflowTool requires promptOps in ctx.extra"))
+
+      // Gate every subagent type the workflow would spawn through the same
+      // "task" permission TaskTool uses, so a workflow can't be used to route
+      // around a parent agent's `task` deny rules.
+      const agentTypes = Array.from(new Set(collectAgentTypes(compiled.ir)))
+      if (!ctx.extra?.bypassAgentCheck && agentTypes.length > 0) {
+        yield* ctx.ask({
+          permission: "task",
+          patterns: agentTypes,
+          always: ["*"],
+          metadata: { description: "workflow", agent_types: agentTypes },
+        })
+      }
 
       const cfg = yield* config.get()
       const primaryTools = cfg.experimental?.primary_tools ?? []

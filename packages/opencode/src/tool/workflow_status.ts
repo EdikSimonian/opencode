@@ -51,13 +51,16 @@ export const WorkflowStatusTool = Tool.define(
 
     const run = Effect.fn("WorkflowStatusTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
-      _ctx: Tool.Context,
+      ctx: Tool.Context,
     ) {
       const result = (input: { title: string; metadata: Record<string, unknown>; output: string }) => input
+      // Only ever expose runs started from THIS session, so one session can't
+      // inspect or cancel another's workflows on a shared instance.
+      const ownedBySession = (info: RunInfo) => info.metadata?.parentSessionId === ctx.sessionID
 
       switch (params.action) {
         case "list": {
-          const runs = yield* store.list()
+          const runs = (yield* store.list()).filter(ownedBySession)
           const output = runs.length
             ? runs.map(renderRunSummary).join("\n")
             : "No workflow runs in this session."
@@ -66,11 +69,17 @@ export const WorkflowStatusTool = Tool.define(
         case "get": {
           if (!params.run_id) return yield* Effect.fail(new Error("run_id is required for action 'get'"))
           const found = yield* store.get(params.run_id)
-          if (!found) return yield* Effect.fail(new Error(`No workflow run found with id ${params.run_id}`))
+          if (!found || !ownedBySession(found))
+            return yield* Effect.fail(new Error(`No workflow run found with id ${params.run_id}`))
           return result({ title: `workflow ${found.status}`, metadata: { status: found.status }, output: renderRunDetail(found) })
         }
         case "cancel": {
           if (!params.run_id) return yield* Effect.fail(new Error("run_id is required for action 'cancel'"))
+          // Verify ownership before cancelling, so a cross-session id can't stop
+          // someone else's run (and looks identical to a missing one).
+          const existing = yield* store.get(params.run_id)
+          if (!existing || !ownedBySession(existing))
+            return yield* Effect.fail(new Error(`No workflow run found with id ${params.run_id}`))
           const after = yield* store.cancel(params.run_id)
           if (!after) return yield* Effect.fail(new Error(`No workflow run found with id ${params.run_id}`))
           return result({ title: `workflow ${after.status}`, metadata: { status: after.status }, output: renderRunDetail(after) })
