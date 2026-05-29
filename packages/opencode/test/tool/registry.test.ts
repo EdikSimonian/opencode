@@ -103,6 +103,9 @@ const scout = testEffect(
 const withBrokenPlugin = testEffect(
   Layer.mergeAll(registryLayer({ plugin: brokenPluginLayer }), node, Agent.defaultLayer),
 )
+const workflowEnabled = testEffect(
+  Layer.mergeAll(registryLayer({ flags: { experimentalWorkflow: true } }), node, Agent.defaultLayer),
+)
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -135,6 +138,26 @@ describe("tool.registry", () => {
       const ids = yield* registry.ids()
 
       expect(ids).not.toContain("task_status")
+    }),
+  )
+
+  it.instance("hides workflow tools unless experimental workflow is enabled", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids).not.toContain("workflow")
+      expect(ids).not.toContain("workflow_status")
+    }),
+  )
+
+  workflowEnabled.instance("exposes workflow tools when experimental workflow is enabled", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids).toContain("workflow")
+      expect(ids).toContain("workflow_status")
     }),
   )
 
