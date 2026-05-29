@@ -11,6 +11,8 @@ const prefixes = {
   pty: "pty",
   tool: "tool",
   workspace: "wrk",
+  workflow: "wf",
+  workflowstep: "wfs",
 } as const
 
 const LENGTH = 26

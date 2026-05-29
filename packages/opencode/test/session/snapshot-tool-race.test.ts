@@ -31,6 +31,7 @@ import { TestLLMServer } from "../lib/llm-server"
 import { NodeFileSystem } from "@effect/platform-node"
 import { Agent as AgentSvc } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
+import { WorkflowStore } from "@/workflow/store"
 import { Git } from "../../src/git"
 import { Bus } from "../../src/bus"
 import { Command } from "../../src/command"
@@ -129,6 +130,7 @@ function makeHttp() {
     mcp,
     AppFileSystem.defaultLayer,
     BackgroundJob.defaultLayer,
+    WorkflowStore.defaultLayer,
     status,
     SyncEvent.defaultLayer,
     EventV2Bridge.defaultLayer,

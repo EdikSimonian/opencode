@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "url"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { Agent as AgentSvc } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
+import { WorkflowStore } from "@/workflow/store"
 import { Bus } from "../../src/bus"
 import { Command } from "../../src/command"
 import { Config } from "@/config/config"
@@ -180,6 +181,7 @@ function makePrompt(input?: { processor?: "blocking" }) {
     mcp,
     AppFileSystem.defaultLayer,
     BackgroundJob.defaultLayer,
+    WorkflowStore.defaultLayer,
     status,
     SyncEvent.defaultLayer,
     EventV2Bridge.defaultLayer,

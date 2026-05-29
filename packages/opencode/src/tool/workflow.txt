@@ -1,0 +1,15 @@
+Run a multi-agent workflow: a declarative document that orchestrates several subagents deterministically (sequentially and/or concurrently) in a single tool call.
+
+Use this when a task decomposes into multiple independent or staged subagent jobs and you want them coordinated for you — instead of issuing many separate task calls and tracking them by hand. Good fits: fan-out review across several files, multi-stage research (gather -> deep-read -> synthesize), or running independent investigations in parallel and collecting all results.
+
+The workflow is described by `steps`, an ordered list that runs sequentially (an implicit seq). Each step is one of:
+- agent:    {"type":"agent","agent":<subagent type>,"prompt":<task>,"id"?:<unique id>,"label"?:<label>,"phase"?:<group>,"schema"?:<JSON Schema>}
+- log:      {"type":"log","message":<progress message>}
+- seq:      {"type":"seq","steps":[...]}        run nested steps in order
+- parallel: {"type":"parallel","steps":[...]}   run nested steps at once (barrier; fails fast if any child fails)
+
+Notes:
+- Set `concurrency` (top level) to cap how many subagents run at once across the whole workflow. Defaults to 8.
+- Give an agent step a `schema` to force structured JSON output; the result for that step will carry the parsed object.
+- `parallel` is fail-fast: the first child error cancels its siblings and fails the workflow.
+- The tool returns one block aggregating every step's result. Prefer one workflow over many manual task calls when the work has structure.

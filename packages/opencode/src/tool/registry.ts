@@ -7,6 +7,7 @@ import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
+import { WorkflowTool } from "./workflow"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
@@ -52,6 +53,7 @@ import { Skill } from "../skill"
 import { Permission } from "@/permission"
 import { Reference } from "@/reference/reference"
 import { BackgroundJob } from "@/background/job"
+import { WorkflowStore } from "@/workflow/store"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 
 const log = Log.create({ service: "tool.registry" })
@@ -90,6 +92,7 @@ export const layer: Layer.Layer<
   | Skill.Service
   | Session.Service
   | BackgroundJob.Service
+  | WorkflowStore.Service
   | Provider.Service
   | Git.Service
   | RepositoryCache.Service
@@ -116,6 +119,7 @@ export const layer: Layer.Layer<
 
     const invalid = yield* InvalidTool
     const task = yield* TaskTool
+    const workflowtool = yield* WorkflowTool
     const read = yield* ReadTool
     const question = yield* QuestionTool
     const todo = yield* TodoWriteTool
@@ -231,6 +235,7 @@ export const layer: Layer.Layer<
           edit: Tool.init(edit),
           write: Tool.init(writetool),
           task: Tool.init(task),
+          workflow: Tool.init(workflowtool),
           fetch: Tool.init(webfetch),
           todo: Tool.init(todo),
           search: Tool.init(websearch),
@@ -255,6 +260,7 @@ export const layer: Layer.Layer<
             tool.edit,
             tool.write,
             tool.task,
+            ...(flags.experimentalWorkflow ? [tool.workflow] : []),
             tool.fetch,
             tool.todo,
             tool.search,
@@ -393,7 +399,7 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Ripgrep.defaultLayer),
       Layer.provide(Truncate.defaultLayer),
     )
-    .pipe(Layer.provide(RuntimeFlags.defaultLayer)),
+    .pipe(Layer.provide(WorkflowStore.defaultLayer), Layer.provide(RuntimeFlags.defaultLayer)),
 )
 
 function isZodType(value: unknown): value is z.ZodType {
