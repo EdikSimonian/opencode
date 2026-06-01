@@ -110,11 +110,46 @@ function opencode-setup {
 
 function opencode {
   `$creds = `$OPENCODE_CREDS
+  foreach (`$d in @(
+      (Join-Path `$HOME '.local\share\opencode'),
+      (Join-Path `$HOME '.local\state\opencode'),
+      (Join-Path `$HOME '.cache\opencode'),
+      `$creds)) { New-Item -ItemType Directory -Force -Path `$d | Out-Null }
   if (-not (Test-Path (Join-Path `$creds 'auth.json'))) { opencode-setup; if (-not (Test-Path (Join-Path `$creds 'auth.json'))) { return } }
   `$started = `$false
   podman info *> `$null; if (`$LASTEXITCODE -ne 0) { podman machine start *> `$null; `$started = `$true }
+
+  # --- network isolation: internet + inbound only; no LAN, no host ------------
+  # Drops all caps + blocks privilege escalation, and filters egress so the
+  # container can reach the public internet and accept inbound (published) ports
+  # but cannot initiate connections to your LAN/host. Env knobs mirror install.sh:
+  # OPENCODE_NO_ISOLATION, OPENCODE_REQUIRE_ISOLATION, OPENCODE_PUBLISH[_ADDR].
+  `$ocNet = 'opencode'; `$ocSubnet = '10.89.0.0/24'; `$ocHolder = 'opencode-netns-holder'
+  `$harden = @('--cap-drop=ALL','--security-opt=no-new-privileges')
+  `$netflag = @('--network', `$ocNet)
+  if (`$env:OPENCODE_NO_ISOLATION) {
+    `$netflag = @()
+  } else {
+    podman network exists `$ocNet 2>`$null; if (`$LASTEXITCODE -ne 0) { podman network create --subnet `$ocSubnet `$ocNet *> `$null }
+    podman rm -f `$ocHolder *> `$null
+    # Holder keeps podman's rootless network namespace (where the bridge + filter
+    # live) alive for the whole session.
+    podman run -d --name `$ocHolder @netflag @harden --entrypoint sleep `$OPENCODE_IMAGE infinity *> `$null
+    # Known-good multi-line nftables program, base64-encoded to avoid all quoting.
+    `$nftB64 = 'dGFibGUgaW5ldCBvcGVuY29kZV9lZ3Jlc3Mge30KZGVsZXRlIHRhYmxlIGluZXQgb3BlbmNvZGVfZWdyZXNzCnRhYmxlIGluZXQgb3BlbmNvZGVfZWdyZXNzIHsKICBjaGFpbiBmb3J3YXJkIHsKICAgIHR5cGUgZmlsdGVyIGhvb2sgZm9yd2FyZCBwcmlvcml0eSAtMTAwOyBwb2xpY3kgYWNjZXB0OwogICAgaXAgc2FkZHIgMTAuODkuMC4wLzI0IGlwIGRhZGRyIHsgMTAuMC4wLjAvOCwgMTcyLjE2LjAuMC8xMiwgMTkyLjE2OC4wLjAvMTYsIDE2OS4yNTQuMC4wLzE2LCAxMDAuNjQuMC4wLzEwIH0gY3Qgc3RhdGUgbmV3IGRyb3AKICB9Cn0K'
+    `$rb = (podman machine ssh "podman unshare --rootless-netns sh -c 'echo `$nftB64 | base64 -d | nft -f - && nft list table inet opencode_egress'" 2>`$null | Out-String)
+    if (`$rb -notmatch '192\.168\.0\.0/16') {
+      if (`$env:OPENCODE_REQUIRE_ISOLATION) { podman rm -f `$ocHolder *> `$null; Write-Error 'opencode: egress filter could not be applied -- refusing to start (OPENCODE_REQUIRE_ISOLATION).'; return }
+      Write-Warning 'opencode: egress filter not confirmed; the container may reach your LAN/host. Set OPENCODE_REQUIRE_ISOLATION=1 to make this fatal.'
+    }
+  }
+  # inbound: publish requested ports (space/comma separated) on OPENCODE_PUBLISH_ADDR (default loopback).
+  `$pubAddr = if (`$env:OPENCODE_PUBLISH_ADDR) { `$env:OPENCODE_PUBLISH_ADDR } else { '127.0.0.1' }
+  `$pub = @()
+  if (`$env:OPENCODE_PUBLISH) { foreach (`$p in (`$env:OPENCODE_PUBLISH -split '[,\s]+' | Where-Object { `$_ })) { `$pub += @('-p', "`$pubAddr`:`$p`:`$p") } }
+
   `$root = (git rev-parse --show-toplevel 2>`$null); if (-not `$root) { `$root = (Get-Location).Path }
-  `$run = @('run','--rm','-i')
+  `$run = @('run','--rm','-i') + `$netflag + `$harden + `$pub
   if (-not [Console]::IsInputRedirected) { `$run += '-t' }
   `$run += @(
     '--mount', "type=bind,source=`$root,target=/work", '-w', '/work',
@@ -133,6 +168,8 @@ function opencode {
   `$run += `$OPENCODE_IMAGE
   podman @run @args
   `$rc = `$LASTEXITCODE
+  # Remove the isolation holder so the machine-stop check sees an idle runtime.
+  podman rm -f `$ocHolder *> `$null
   # Free resources: only if WE started the machine this run and no other containers remain.
   if (`$started -and -not `$env:OPENCODE_KEEP_MACHINE -and -not (podman ps -q 2>`$null)) {
     Write-Host 'opencode: stopping the Podman machine we started (no other containers running).'

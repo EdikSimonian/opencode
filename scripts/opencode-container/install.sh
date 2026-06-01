@@ -218,7 +218,7 @@ printf 'Saved %s/{opencode.json,auth.json} (chmod 600). Default model: %s. Disco
   "$CREDS" "$default" "$(printf '%s\n' "$ids" | wc -l | tr -d ' ')"
 SETUP
 
-  # opencode: the main wrapper (runs the container)
+  # opencode: the main wrapper (runs the container on an isolated network)
   cat > "$BIN_DIR/opencode" <<'RUN'
 #!/bin/sh
 set -u
@@ -226,6 +226,29 @@ IMAGE="${OPENCODE_IMAGE:-docker.io/edisimon/opencode:latest}"
 SEL="__OC_SEL__"
 CREDS="$HOME/.config/opencode-container"
 BIN=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+# --- network isolation -------------------------------------------------------
+# By default the container runs on a dedicated network whose egress is filtered
+# so it can reach the *public internet* and accept *inbound* (published) ports,
+# but CANNOT initiate connections to your LAN, your host, link-local or CGNAT
+# ranges. It also drops all Linux capabilities and blocks privilege escalation.
+#
+# Env overrides:
+#   OPENCODE_NO_ISOLATION=1        run on the default bridge with no egress filter
+#   OPENCODE_REQUIRE_ISOLATION=1   refuse to start if the egress filter can't be confirmed
+#   OPENCODE_ALLOW="10.0.5.0/24 …" extra destination CIDRs to allow (e.g. a LAN LiteLLM)
+#   OPENCODE_PUBLISH="3000 8000-8010 …"  container ports to expose for inbound
+#   OPENCODE_PUBLISH_ADDR=127.0.0.1      host address to publish on (0.0.0.0 = reachable from LAN)
+OC_NET=opencode
+OC_SUBNET=10.89.0.0/24
+OC_HOLDER=opencode-netns-holder
+HARDEN="--cap-drop=ALL --security-opt=no-new-privileges"
+
+for d in "$HOME/.local/share/opencode" "$HOME/.local/state/opencode" \
+         "$HOME/.cache/opencode" "$CREDS"; do
+  mkdir -p "$d"
+done
+chmod 700 "$CREDS" 2>/dev/null || true
 
 [ -f "$CREDS/auth.json" ] || { "$BIN/opencode-setup" || exit 1; }
 
@@ -253,8 +276,79 @@ for v in ANTHROPIC_API_KEY OPENAI_API_KEY OPENROUTER_API_KEY GEMINI_API_KEY \
   [ -n "$val" ] && envflags="$envflags -e $v"
 done
 
+# --- inbound: publish requested container ports (space- or comma-separated) ---
+pub=""
+addr="${OPENCODE_PUBLISH_ADDR:-127.0.0.1}"
+if [ -n "${OPENCODE_PUBLISH:-}" ]; then
+  for p in $(printf '%s' "$OPENCODE_PUBLISH" | tr ',' ' '); do
+    pub="$pub -p $addr:$p:$p"
+  done
+fi
+
+# --- egress filter -----------------------------------------------------------
+netflag="--network $OC_NET"
+if [ -n "${OPENCODE_NO_ISOLATION:-}" ]; then
+  netflag=""   # explicit opt-out: default bridge, no filter
+else
+  podman network exists "$OC_NET" 2>/dev/null \
+    || podman network create --subnet "$OC_SUBNET" "$OC_NET" >/dev/null
+
+  # netavark runs the bridge inside podman's rootless network namespace (true
+  # even inside the macOS/Windows VM), so the egress filter must be installed
+  # there. A tiny "holder" container keeps that namespace alive for the session.
+  podman rm -f "$OC_HOLDER" >/dev/null 2>&1 || true
+  # shellcheck disable=SC2086
+  podman run -d --name "$OC_HOLDER" $netflag $HARDEN \
+    --entrypoint sleep "$IMAGE" infinity >/dev/null 2>&1 \
+    || echo "opencode: WARNING -- could not start the isolation holder." >&2
+  trap 'podman rm -f "$OC_HOLDER" >/dev/null 2>&1 || true' EXIT INT TERM
+
+  # Optional allow-list (accepted before the drop): e.g. a LiteLLM on your LAN.
+  allow_rule=""
+  if [ -n "${OPENCODE_ALLOW:-}" ]; then
+    allow_set=""
+    for c in $(printf '%s' "$OPENCODE_ALLOW" | tr ',' ' '); do allow_set="$allow_set $c,"; done
+    allow_set=$(printf '%s' "$allow_set" | sed 's/,[[:space:]]*$//; s/^[[:space:]]*//')
+    allow_rule="ip saddr $OC_SUBNET ip daddr { $allow_set } accept"
+  fi
+
+  # Drop NEW connections from the opencode subnet to private/special ranges;
+  # public internet passes. Inbound published ports are unaffected (their
+  # replies are ESTABLISHED, never NEW).
+  nft_prog="table inet opencode_egress {}
+delete table inet opencode_egress
+table inet opencode_egress {
+  chain forward {
+    type filter hook forward priority -100; policy accept;
+    $allow_rule
+    ip saddr $OC_SUBNET ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10 } ct state new drop
+  }
+}"
+
+  # Apply, then read the table back, in the namespace this runtime uses.
+  if podman machine inspect >/dev/null 2>&1; then
+    rb=$(printf '%s\n' "$nft_prog" | podman machine ssh 'podman unshare --rootless-netns sh -c "nft -f - && nft list table inet opencode_egress"' 2>/dev/null)
+  elif [ "$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" = true ]; then
+    rb=$(printf '%s\n' "$nft_prog" | podman unshare --rootless-netns sh -c 'nft -f - && nft list table inet opencode_egress' 2>/dev/null)
+  else
+    rb=$(printf '%s\n' "$nft_prog" | sudo sh -c 'nft -f - && nft list table inet opencode_egress' 2>/dev/null)
+  fi
+
+  if printf '%s' "$rb" | grep -q '192.168.0.0/16'; then
+    : # egress filter confirmed live
+  elif [ -n "${OPENCODE_REQUIRE_ISOLATION:-}" ]; then
+    echo "opencode: egress filter could not be applied -- refusing to start (OPENCODE_REQUIRE_ISOLATION=1)." >&2
+    podman rm -f "$OC_HOLDER" >/dev/null 2>&1 || true
+    exit 1
+  else
+    echo "opencode: WARNING -- egress filter not confirmed; the container may reach your LAN/host." >&2
+    echo "opencode:           set OPENCODE_REQUIRE_ISOLATION=1 to make this fatal instead." >&2
+  fi
+fi
+
 # shellcheck disable=SC2086
 podman run --rm -i $tty \
+  $netflag $HARDEN $pub \
   -v "$root:/work$z" -w "/work${rel:+/$rel}" \
   -e HOME=/oc -e XDG_CONFIG_HOME=/oc/.config -e XDG_DATA_HOME=/oc/.local/share \
   -e XDG_STATE_HOME=/oc/.local/state -e XDG_CACHE_HOME=/oc/.cache \
@@ -265,6 +359,10 @@ podman run --rm -i $tty \
   -v "$CREDS/auth.json:/oc/.local/share/opencode/auth.json$zro" \
   $gitmount $envflags "$IMAGE" "$@"
 rc=$?
+
+# Remove the isolation holder so the machine-stop check sees an idle runtime.
+podman rm -f "$OC_HOLDER" >/dev/null 2>&1 || true
+trap - EXIT INT TERM
 
 # Free resources: only if WE started the machine this run (macOS/Windows) and no
 # other Podman containers remain. Won't touch a machine you were already using.

@@ -89,6 +89,63 @@ already running when you launched (so it never disrupts other Podman work). Set
   inherent to running an agent that must authenticate; scope each student key
   accordingly on the LiteLLM side.
 
+## Network isolation & sandboxing
+
+By default the container runs on a dedicated, **egress-filtered** network so a
+misbehaving agent (or weak model) can't reach anything it shouldn't:
+
+- **Outbound → public internet only.** The container **cannot initiate**
+  connections to your **LAN**, your **host**, link-local or CGNAT addresses
+  (`10/8`, `172.16/12`, `192.168/16`, `169.254/16`, `100.64/10` are dropped). It
+  can't poke your router, NAS, or host services — only the internet (e.g. your
+  LiteLLM server).
+- **Inbound still works.** Replies to inbound connections aren't filtered, so
+  ports you publish remain reachable. See **Inbound ports** below.
+- **No privilege escalation.** The container drops **all Linux capabilities**
+  (`--cap-drop=ALL`) and sets **`no-new-privileges`**. Combined with Podman's
+  **rootless** mode — where container UID 0 maps to your **non-root** host user —
+  code in the container cannot become root on your host.
+
+The filter is an `nftables` rule installed inside Podman's network namespace on
+each launch and **verified before the session starts**. On macOS/Windows that
+namespace lives inside the Podman VM, so **nothing on your host firewall is
+touched**.
+
+**Caveat — services on your LAN.** Since all private ranges are blocked, a
+LiteLLM/registry/proxy hosted on your **LAN** is blocked too. A public server
+(e.g. `https://ai.simonian.online`) is unaffected. To allow a specific LAN
+destination (macOS/Linux):
+
+```sh
+OPENCODE_ALLOW="192.168.0.50/32" opencode      # permit one LAN host through the filter
+```
+
+### Inbound ports
+
+opencode's TUI doesn't listen on anything, but if the agent starts a dev server
+(or you run `opencode serve`), publish the port(s) to reach them from the host:
+
+```sh
+OPENCODE_PUBLISH="3000"            opencode     # one port
+OPENCODE_PUBLISH="3000 8000-8010"  opencode     # ports + a range
+OPENCODE_PUBLISH_ADDR=0.0.0.0 OPENCODE_PUBLISH="3000" opencode   # also reachable from the LAN
+```
+
+Ports publish to **`127.0.0.1` by default** (only your machine can reach them).
+There is **no "publish all 65535"**: privileged ports (`<1024`) need root to
+bind, and a single already-used host port aborts the whole range — so publish the
+specific ports/ranges you need.
+
+### Isolation env vars
+
+| Var | Effect |
+|---|---|
+| `OPENCODE_PUBLISH` | Space/comma list of container ports/ranges to expose for inbound |
+| `OPENCODE_PUBLISH_ADDR` | Host address to publish on (default `127.0.0.1`; `0.0.0.0` = LAN-reachable) |
+| `OPENCODE_ALLOW` | Extra destination CIDRs to permit through the egress filter (e.g. a LAN LiteLLM) |
+| `OPENCODE_REQUIRE_ISOLATION=1` | Refuse to start if the egress filter can't be confirmed (fail-closed) |
+| `OPENCODE_NO_ISOLATION=1` | Run on the default bridge with **no** egress filter (opt-out) |
+
 ## Provider env vars (optional)
 
 If set in your shell, these are forwarded into the container:
@@ -99,10 +156,11 @@ If set in your shell, these are forwarded into the container:
 ## Limitations
 
 - **Tools run inside the image.** opencode executes shell/build/test/git commands
-  *inside* the container, which is a thin Alpine image (only `ripgrep` + libs). File
-  editing and LLM work fine, but your project's language runtimes / build tools are
-  **not** present — `npm test`, `go build`, etc. may fail unless added to the image.
-  Your `~/.gitconfig` is mounted read-only so git identity works.
+  *inside* the container, a slim Debian image bundling `git`, `ripgrep`,
+  **Node.js (current LTS) + npm**, and **Python 3 + pip/venv** (plus `ca-certificates`).
+  So `npm`/`node` and `python`/`pip` work out of the box; **other** runtimes (Go,
+  Rust, Java, …) are **not** present and would need adding to the image. Your
+  `~/.gitconfig` is mounted read-only so git identity works.
 - **Browser/OAuth logins won't work** from inside the container (a `localhost`
   callback can't reach your host browser). The LiteLLM API-key flow used here
   avoids that entirely.

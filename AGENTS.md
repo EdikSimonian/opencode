@@ -133,3 +133,24 @@ const table = sqliteTable("session", {
 ## Type Checking
 
 - Always run `bun typecheck` from package directories (e.g., `packages/opencode`), never `tsc` directly.
+
+## Local Multi-Model Feedback
+
+When acting as the primary `build` agent on a non-trivial coding, debugging, design, or review task, get independent feedback from both local LiteLLM subagents before making the final implementation decision:
+
+- `gemma-feedback`
+- `glm-feedback`
+- `qwen-feedback`
+
+Use the `task` tool to ask both agents the same task brief. Their prompts must be independent: do not include either subagent's answer in the other subagent's first-round prompt.
+
+After both results return:
+
+1. Compare their recommendations against your own analysis.
+2. Identify agreements, disagreements, and missing evidence.
+3. Decide the final approach yourself.
+4. Implement only after considering both results.
+
+Do not blindly follow either subagent. Treat them as reviewers, not authorities.
+
+Skip this rule for small, mechanical, or clearly specified requests where the feedback round would add more overhead than value.
