@@ -72,6 +72,9 @@
     }
   },
   "permission": {},
+  "reference": {
+    "effect": "github.com/Effect-TS/effect-smol",
+  },
   "mcp": {
     "claude-code": {
       "enabled": false,
