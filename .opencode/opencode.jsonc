@@ -1,8 +1,92 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "provider": {},
+  "provider": {
+    "litellm": {
+      "name": "LiteLLM on ha",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "https://ai.edisimon.com/v1",
+        "timeout": 600000,
+        "chunkTimeout": 60000
+      },
+      "models": {
+        "qwen3.6-27b": {
+          // Must match the model id returned by LiteLLM's /v1/models.
+          "id": "qwen3.6-27b",
+          "name": "Qwen3.6 27B",
+          "family": "qwen",
+          "tool_call": true,
+          "temperature": true,
+          "reasoning": false,
+          "limit": {
+            "context": 65536,
+            "output": 8192
+          },
+          "cost": {
+            "input": 0,
+            "output": 0
+          }
+        },
+        "gemma-4-31b": {
+          // Must match the model id returned by LiteLLM's /v1/models.
+          "id": "gemma-4-31b",
+          "name": "Gemma 4 31B",
+          "family": "gemma",
+          "tool_call": true,
+          "temperature": true,
+          "reasoning": false,
+          "limit": {
+            "context": 65536,
+            "output": 8192
+          },
+          "cost": {
+            "input": 0,
+            "output": 0
+          }
+        },
+        "glm-4.7-flash": {
+          // Must match the model id returned by LiteLLM's /v1/models.
+          "id": "glm-4.7-flash",
+          "name": "GLM-4.7-Flash",
+          "family": "glm",
+          "tool_call": true,
+          "temperature": true,
+          "reasoning": true,
+          "limit": {
+            "context": 65536,
+            "output": 8192
+          },
+          "cost": {
+            "input": 0,
+            "output": 0
+          }
+        }
+      }
+    }
+  },
+  "model": "litellm/qwen3.6-27b",
+  "agent": {
+    "build": {
+      "model": "litellm/qwen3.6-27b",
+      "temperature": 0.2
+    }
+  },
   "permission": {},
-  "mcp": {},
+  "references": {
+    "effect": {
+      "repository": "github.com/Effect-TS/effect-smol",
+      "description": "Use for Effect v4 and effect-smol implementation details",
+    },
+    "opencode-local": {
+      "path": "~/.local/share/opencode",
+      "description": "Contains opencode logs and data",
+    },
+  },
+  "mcp": {
+    "claude-code": {
+      "enabled": false,
+    },
+  },
   "tools": {
     "github-triage": false,
     "github-pr-search": false,
